@@ -215,7 +215,19 @@
     requestAnimationFrame(tick);
   }
 
-  document.querySelectorAll(".reveal, .stat").forEach((el) => io.observe(el));
+  let revealsStarted = false;
+  function startReveals() {
+    if (revealsStarted) return;
+    revealsStarted = true;
+    document.querySelectorAll(".reveal, .stat").forEach((el) => io.observe(el));
+  }
+  // 若有开场动画:等幕布升起后再编排入场;并设兜底防止动画异常时内容不显示
+  if (document.documentElement.classList.contains("intro-pending")) {
+    window.addEventListener("nexus:intro-done", startReveals, { once: true });
+    setTimeout(startReveals, 6000);
+  } else {
+    startReveals();
+  }
 
   /* ── 4. 移动端导航 ───────────────────────── */
   const burger = document.getElementById("navBurger");

@@ -1,0 +1,101 @@
+/* ═══════════════════════════════════════════════
+   NEXUS · 开场动画(Preloader Intro)
+   盾牌描边 → 字母点亮 → 安全通道进度 → 幕布升起
+   ═══════════════════════════════════════════════ */
+
+/* 开场期间:锁定滚动,Hero 内容延后入场 */
+html.intro-pending { overflow: hidden; }
+html.intro-pending .hero__globe { opacity: 0 !important; }
+
+/* 幕布本体(仅 JS 就绪时显示,无 JS 用户直接看到页面) */
+.intro {
+  display: none;
+}
+html.intro-pending .intro, html.intro-lifting .intro {
+  display: block;
+  position: fixed; inset: 0; z-index: 2500;
+  background:
+    radial-gradient(ellipse 60% 45% at 50% 42%, rgba(56, 225, 255, 0.05), transparent 65%),
+    var(--bg);
+}
+
+/* ── 中央核心:盾牌 + 字母 + 进度线 ── */
+.intro__core {
+  position: absolute; left: 50%; top: 42%;
+  transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center; gap: 26px;
+}
+.intro__mark {
+  width: 44px; height: 44px; color: var(--accent);
+  filter: drop-shadow(0 0 12px rgba(56, 225, 255, 0.5));
+}
+.intro__mark path {
+  stroke-dasharray: 100; stroke-dashoffset: 100;
+  animation: introDraw 0.9s ease forwards;
+}
+.intro__mark path:nth-child(2) { animation-delay: 0.45s; }
+@keyframes introDraw { to { stroke-dashoffset: 0; } }
+
+.intro__word {
+  display: flex; gap: 0.55em;
+  font-family: var(--mono); font-size: 17px; font-weight: 700;
+  letter-spacing: 0; color: var(--text);
+}
+.intro__word span {
+  opacity: 0; transform: translateY(14px);
+  animation: introLetter 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+}
+.intro__word span:nth-child(1) { animation-delay: 0.55s; }
+.intro__word span:nth-child(2) { animation-delay: 0.65s; }
+.intro__word span:nth-child(3) { animation-delay: 0.75s; }
+.intro__word span:nth-child(4) { animation-delay: 0.85s; }
+.intro__word span:nth-child(5) { animation-delay: 0.95s; }
+@keyframes introLetter { to { opacity: 1; transform: none; } }
+
+.intro__bar {
+  width: 220px; height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+.intro__bar i {
+  display: block; height: 100%; width: 0%;
+  background: linear-gradient(90deg, rgba(56, 225, 255, 0.4), var(--accent));
+  box-shadow: 0 0 12px rgba(56, 225, 255, 0.7);
+}
+
+/* ── 角落信息 ── */
+.intro__count, .intro__status, .intro__skip {
+  position: absolute;
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.22em;
+  color: var(--text-faint); text-transform: uppercase;
+}
+.intro__count { left: clamp(20px, 5vw, 60px); bottom: clamp(20px, 5vh, 48px); color: var(--accent); font-size: 15px; }
+.intro__status { right: clamp(20px, 5vw, 60px); bottom: clamp(20px, 5vh, 48px); }
+.intro__skip {
+  left: 50%; bottom: clamp(14px, 3.4vh, 30px); transform: translateX(-50%);
+  font-size: 10px; color: rgba(89, 96, 111, 0.7);
+  opacity: 0; animation: introLetter 0.6s ease 1.3s forwards;
+}
+.intro__status.is-ok { color: var(--green); }
+
+/* ── 幕布升起 ── */
+html.intro-lifting .intro {
+  transition: transform 0.9s cubic-bezier(0.83, 0, 0.17, 1);
+  transform: translateY(-101%);
+}
+html.intro-lifting .intro__core,
+html.intro-lifting .intro__count,
+html.intro-lifting .intro__status,
+html.intro-lifting .intro__skip { opacity: 0; transition: opacity 0.3s ease; }
+
+/* ── Hero 入场编排(开场结束后逐行浮现)── */
+.hero .reveal { transition-delay: calc(var(--i, 0) * 110ms); }
+.hero__globe { opacity: 0; transform: translateY(-50%) scale(1.05); transition: opacity 1.5s ease 0.1s, transform 1.6s ease 0.1s; }
+html.intro-done .hero__globe { opacity: 0.95; transform: translateY(-50%) scale(1); }
+html.intro-done.hero .hero__globe { opacity: 0.95; }
+
+/* ── 减少动态偏好:直接跳过 ── */
+@media (prefers-reduced-motion: reduce) {
+  .intro { display: none !important; }
+  .intro__mark path, .intro__word span { animation: none; opacity: 1; transform: none; stroke-dashoffset: 0; }
+}
