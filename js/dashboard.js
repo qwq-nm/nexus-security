@@ -1,29 +1,55 @@
 /* ═══════════════════════════════════════════════
-   NEXUS · 安全运营控制台
+   NEXUS · 安全运营控制台(双模式)
+   api 模式 → 真实后端:bootstrap 拉取 + REST 处置 + SSE 实时流
+   demo 模式 → localStorage(静态托管回退)
    视图:总览 / 告警中心 / 资产管理 / 处置剧本 / 报表
    ═══════════════════════════════════════════════ */
 
-(() => {
+(async () => {
   "use strict";
   const N = window.NEXUS;
-  const user = N.requireAuth();
-  if (!user) return;
+  const API = window.NEXUS_API;
+  const { mode } = await window.NEXUS_MODE;
 
-  /* ── 状态 ─────────────────────────────────── */
-  const state = {
-    alerts: N.read(N.K.alerts(user.email), []),
-    assets: N.read(N.K.assets(user.email), []),
-    playbooks: N.read(N.K.playbooks(user.email), []),
-    trend: N.read(N.K.trend(user.email), []),
-    feed: N.read(N.K.feed(user.email), []),
-  };
-  const save = {
-    alerts: () => N.write(N.K.alerts(user.email), state.alerts),
-    assets: () => N.write(N.K.assets(user.email), state.assets),
-    playbooks: () => N.write(N.K.playbooks(user.email), state.playbooks),
-    trend: () => N.write(N.K.trend(user.email), state.trend),
-    feed: () => N.write(N.K.feed(user.email), state.feed),
-  };
+  /* ── 状态与用户解析 ────────────────────────── */
+  const state = { alerts: [], assets: [], playbooks: [], trend: [], feed: [] };
+  let user;
+
+  if (mode === "api") {
+    let boot;
+    try {
+      boot = await API.call("GET", "api/bootstrap");
+    } catch {
+      location.replace("login.html?next=" + encodeURIComponent("dashboard.html"));
+      return;
+    }
+    user = boot.user;
+    Object.assign(state, {
+      alerts: boot.alerts, assets: boot.assets,
+      playbooks: boot.playbooks, trend: boot.trend, feed: boot.feed,
+    });
+  } else {
+    user = N.requireAuth();
+    if (!user) return;
+    Object.assign(state, {
+      alerts: N.read(N.K.alerts(user.email), []),
+      assets: N.read(N.K.assets(user.email), []),
+      playbooks: N.read(N.K.playbooks(user.email), []),
+      trend: N.read(N.K.trend(user.email), []),
+      feed: N.read(N.K.feed(user.email), []),
+    });
+  }
+
+  /* ── 持久化(demo 模式写 localStorage;api 模式由服务端负责)─ */
+  const save = mode === "demo"
+    ? {
+        alerts: () => N.write(N.K.alerts(user.email), state.alerts),
+        assets: () => N.write(N.K.assets(user.email), state.assets),
+        playbooks: () => N.write(N.K.playbooks(user.email), state.playbooks),
+        trend: () => N.write(N.K.trend(user.email), state.trend),
+        feed: () => N.write(N.K.feed(user.email), state.feed),
+      }
+    : { alerts() {}, assets() {}, playbooks() {}, trend() {}, feed() {} };
 
   /* ── 工具 ─────────────────────────────────── */
   const $ = (s) => document.querySelector(s);
@@ -53,7 +79,7 @@
             <h3></h3><p></p>
             <div class="modal__actions">
               <button class="btn btn--ghost" data-act="cancel">取消</button>
-              <button class="btn ${danger ? "btn--primary" : "btn--primary"}" data-act="ok"></button>
+              <button class="btn btn--primary" data-act="ok"></button>
             </div>
           </div>
         </div>`;
@@ -72,11 +98,24 @@
     });
   }
 
-  function pushFeed(level, msg) {
-    state.feed.unshift({ ts: Date.now(), level, msg });
+  /* ── 事件流写入(demo 本地 / api 经 SSE + POST 去重)─ */
+  const feedSeen = new Set(state.feed.map((f) => f.ts + "|" + f.msg));
+  function pushFeedEntry(f) {
+    const key = f.ts + "|" + f.msg;
+    if (feedSeen.has(key)) return;
+    feedSeen.add(key);
+    state.feed.unshift(f);
     state.feed = state.feed.slice(0, 30);
-    save.feed();
-    renderFeed();
+    if (mode === "demo") save.feed();
+    if (currentView === "overview") renderFeed();
+  }
+  function pushFeed(level, msg) {           // demo 模式本地写入
+    if (mode === "api") return;
+    pushFeedEntry({ ts: Date.now(), level, msg });
+  }
+  async function apiCall(method, url, body) {
+    try { return await API.call(method, url, body); }
+    catch (e) { toast(e.message, "warn"); return null; }
   }
 
   /* ── 顶栏用户 ─────────────────────────────── */
@@ -146,22 +185,30 @@
     }
   }
 
-  const AMBIENT_EVENTS = [
-    ["ok", "威胁情报库已同步,新增 IOC 1,024 条"],
-    ["warn", "资产 fin-wks-207 出站流量小幅升高,持续观察"],
-    ["ok", "探针心跳正常 · 1,284 个资产在线"],
-    ["warn", "检测到 3 次失败的 SSH 登录,已记录"],
-    ["ok", "日志管道延迟 0.8s,运行正常"],
-    ["crit", "情报命中:外部 IP 命中勒索软件 C2 名单,已自动封禁"],
-    ["ok", "合规基线快照完成,达标率 92.4%"],
-  ];
-  let ambIdx = 0;
-  setInterval(() => {
-    const [level, msg] = AMBIENT_EVENTS[ambIdx++ % AMBIENT_EVENTS.length];
-    state.feed.unshift({ ts: Date.now(), level, msg });
-    state.feed = state.feed.slice(0, 30);
-    if (currentView === "overview") renderFeed();
-  }, 9000);
+  /* ── 事件源:api 模式 SSE / demo 模式本地模拟 ── */
+  if (mode === "api") {
+    try {
+      const es = new EventSource("api/stream");
+      es.onmessage = (ev) => {
+        try { pushFeedEntry(JSON.parse(ev.data)); } catch {}
+      };
+    } catch { /* SSE 不可用时仅依赖 POST 响应 */ }
+  } else {
+    const AMBIENT_EVENTS = [
+      ["ok", "威胁情报库已同步,新增 IOC 1,024 条"],
+      ["warn", "资产 fin-wks-207 出站流量小幅升高,持续观察"],
+      ["ok", "探针心跳正常 · 1,284 个资产在线"],
+      ["warn", "检测到 3 次失败的 SSH 登录,已记录"],
+      ["ok", "日志管道延迟 0.8s,运行正常"],
+      ["crit", "情报命中:外部 IP 命中勒索软件 C2 名单,已自动封禁"],
+      ["ok", "合规基线快照完成,达标率 92.4%"],
+    ];
+    let ambIdx = 0;
+    setInterval(() => {
+      const [level, msg] = AMBIENT_EVENTS[ambIdx++ % AMBIENT_EVENTS.length];
+      pushFeedEntry({ ts: Date.now(), level, msg });
+    }, 9000);
+  }
 
   /* ── 图表 ─────────────────────────────────── */
   function setupCanvas(cv) {
@@ -184,7 +231,6 @@
     const X = (i) => padL + (iw * i) / (data.length - 1);
     const Y = (v) => padT + ih - (v / maxV) * ih;
 
-    // 横向网格与刻度
     ctx.strokeStyle = "rgba(148,163,184,0.12)";
     ctx.fillStyle = "rgba(148,163,184,0.55)";
     ctx.font = "10.5px " + getComputedStyle(document.body).fontFamily;
@@ -196,10 +242,9 @@
     }
     data.forEach((d, i) => ctx.fillText(d.day, X(i) - 11, h - 8));
 
-    // 新增告警:面积 + 线
     const area = ctx.createLinearGradient(0, padT, 0, padT + ih);
-    area.addColorStop(0, "rgba(59,130,246,0.35)");
-    area.addColorStop(1, "rgba(59,130,246,0)");
+    area.addColorStop(0, "rgba(56, 225, 255, 0.30)");
+    area.addColorStop(1, "rgba(56, 225, 255, 0)");
     ctx.beginPath();
     data.forEach((d, i) => (i ? ctx.lineTo(X(i), Y(d.alerts)) : ctx.moveTo(X(i), Y(d.alerts))));
     ctx.lineTo(X(data.length - 1), padT + ih); ctx.lineTo(X(0), padT + ih); ctx.closePath();
@@ -207,22 +252,20 @@
 
     ctx.beginPath();
     data.forEach((d, i) => (i ? ctx.lineTo(X(i), Y(d.alerts)) : ctx.moveTo(X(i), Y(d.alerts))));
-    ctx.strokeStyle = "#60a5fa"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.strokeStyle = "#38e1ff"; ctx.lineWidth = 2; ctx.stroke();
 
-    // 已拦截:线
     ctx.beginPath();
     data.forEach((d, i) => (i ? ctx.lineTo(X(i), Y(d.blocked)) : ctx.moveTo(X(i), Y(d.blocked))));
-    ctx.strokeStyle = "#22d3ee"; ctx.lineWidth = 2; ctx.setLineDash([5, 4]); ctx.stroke();
+    ctx.strokeStyle = "#7dd3fc"; ctx.lineWidth = 2; ctx.setLineDash([5, 4]); ctx.stroke();
     ctx.setLineDash([]);
 
-    // 数据点
     data.forEach((d, i) => {
-      ctx.fillStyle = "#93c5fd";
+      ctx.fillStyle = "#a5f3fc";
       ctx.beginPath(); ctx.arc(X(i), Y(d.alerts), 3, 0, Math.PI * 2); ctx.fill();
     });
   }
 
-  const TYPE_COLORS = ["#3b82f6", "#22d3ee", "#8b5cf6", "#f59e0b", "#f87171", "#34d399", "#64748b"];
+  const TYPE_COLORS = ["#38e1ff", "#8b5cf6", "#f59e0b", "#f87171", "#4ade80", "#22d3ee", "#64748b"];
   function drawType() {
     const counts = {};
     for (const a of state.alerts) counts[a.type] = (counts[a.type] || 0) + 1;
@@ -246,12 +289,12 @@
       ctx.fill();
       ang += slice;
     }
-    ctx.fillStyle = "#e8edf7";
+    ctx.fillStyle = "#eef1f7";
     ctx.font = "700 22px " + getComputedStyle(document.body).fontFamily;
     ctx.textAlign = "center";
     ctx.fillText(String(total), cx, cy - 2);
     ctx.font = "11px " + getComputedStyle(document.body).fontFamily;
-    ctx.fillStyle = "rgba(148,163,184,0.7)";
+    ctx.fillStyle = "rgba(153,162,178,0.7)";
     ctx.fillText("安全事件", cx, cy + 16);
     ctx.textAlign = "left";
 
@@ -294,25 +337,42 @@
     if (!a) return;
     const asset = state.assets.find((x) => x.name === a.asset);
 
+    if (act === "isolate") {
+      const ok = await confirmModal({
+        title: "隔离主机",
+        body: `将立即切断 ${a.asset} 的网络连接并保留内存取证快照,确认执行?`,
+        okText: "立即隔离", danger: true,
+      });
+      if (!ok) return;
+    }
+
+    // api 模式:先交服务端执行(权威),成功后同步本地实体
+    if (mode === "api") {
+      const res = await apiCall("POST", `api/alerts/${id}/action`, { action: act });
+      if (!res) return;
+      Object.assign(a, res.alert);
+      if (act === "isolate" && asset) asset.status = "已隔离";
+      if (act === "release" && asset && asset.status === "已隔离") asset.status = "告警";
+      if (res.feed) pushFeedEntry(res.feed);
+      save.alerts(); save.assets();
+      renderAlerts(); renderKpis();
+      toast(TOAST_TEXT[act](a), act === "isolate" ? "warn" : act === "ignore" || act === "release" || act === "reopen" ? "info" : "ok");
+      return;
+    }
+
+    // demo 模式:本地变更
     switch (act) {
       case "ban":
         a.status = "已封禁"; a.handledBy = user.name;
         pushFeed("ok", `告警 ${a.id} 来源 IP 已封禁(${a.src})`);
         toast(`已封禁来源 ${a.src}`);
         break;
-      case "isolate": {
-        const ok = await confirmModal({
-          title: "隔离主机",
-          body: `将立即切断 ${a.asset} 的网络连接并保留内存取证快照,确认执行?`,
-          okText: "立即隔离", danger: true,
-        });
-        if (!ok) return;
+      case "isolate":
         a.status = "已隔离"; a.handledBy = user.name;
         if (asset) asset.status = "已隔离";
         pushFeed("crit", `告警 ${a.id} 触发主机隔离:${a.asset}`);
         toast(`${a.asset} 已隔离,内存快照已保留`, "warn");
         break;
-      }
       case "ignore":
         a.status = "已忽略";
         pushFeed("warn", `告警 ${a.id} 被标记为忽略(${a.type})`);
@@ -342,6 +402,15 @@
     save.alerts(); save.assets();
     renderAlerts(); renderKpis();
   }
+  const TOAST_TEXT = {
+    ban: (a) => `已封禁来源 ${a.src}`,
+    isolate: (a) => `${a.asset} 已隔离,内存快照已保留`,
+    ignore: (a) => `告警 ${a.id} 已忽略`,
+    resolve: (a) => `告警 ${a.id} 已解决`,
+    unban: (a) => `已解除对 ${a.src} 的封禁`,
+    release: (a) => `${a.asset} 已恢复联网,状态转为处理中`,
+    reopen: (a) => `告警 ${a.id} 重新进入待处置队列`,
+  };
 
   function renderAlerts() {
     const kw = ($("#alertSearch").value || "").trim().toLowerCase();
@@ -392,6 +461,7 @@
   async function handleAssetAction(act, id) {
     const a = state.assets.find((x) => x.id === id);
     if (!a) return;
+
     if (act === "isolate") {
       const ok = await confirmModal({
         title: "隔离资产",
@@ -399,6 +469,21 @@
         okText: "立即隔离", danger: true,
       });
       if (!ok) return;
+    }
+
+    if (mode === "api") {
+      const res = await apiCall("POST", `api/assets/${id}/action`, { action: act });
+      if (!res) return;
+      Object.assign(a, res.asset);
+      if (res.feed) pushFeedEntry(res.feed);
+      save.assets();
+      renderAssets(); renderKpis();
+      toast(act === "isolate" ? `${a.name} 已隔离` : act === "release" ? `${a.name} 已恢复上线` : `${a.name} 扫描完成,风险评分 ${a.risk}`,
+        act === "isolate" ? "warn" : act === "rescan" ? "info" : "ok");
+      return;
+    }
+
+    if (act === "isolate") {
       a.status = "已隔离";
       state.alerts.forEach((al) => { if (al.asset === a.name && al.status === "处理中") al.status = "已隔离"; });
       pushFeed("crit", `资产 ${a.name} 已被 ${user.name} 手动隔离`);
@@ -492,12 +577,22 @@
     }
   }
 
-  $("#pbGrid").addEventListener("change", (e) => {
+  $("#pbGrid").addEventListener("change", async (e) => {
     const input = e.target.closest("input[data-act='toggle']");
     if (!input) return;
     const p = state.playbooks.find((x) => x.id === input.dataset.id);
     if (!p) return;
-    p.enabled = input.checked;
+    const enabled = input.checked;
+
+    if (mode === "api") {
+      const res = await apiCall("POST", `api/playbooks/${p.id}/toggle`, { enabled });
+      if (!res) { input.checked = !enabled; return; }
+      Object.assign(p, res.playbook);
+      if (res.feed) pushFeedEntry(res.feed);
+      toast(`剧本「${p.name}」已${p.enabled ? "启用" : "停用"}`, p.enabled ? "ok" : "info");
+      return;
+    }
+    p.enabled = enabled;
     save.playbooks();
     pushFeed(p.enabled ? "ok" : "warn", `剧本「${p.name}」已${p.enabled ? "启用" : "停用"}`);
     toast(`剧本「${p.name}」已${p.enabled ? "启用" : "停用"}`, p.enabled ? "ok" : "info");
@@ -509,6 +604,22 @@
     const p = state.playbooks.find((x) => x.id === btn.dataset.id);
     if (!p) return;
     if (!p.enabled) return toast("剧本已停用,请先开启开关再执行", "warn");
+
+    if (mode === "api") {
+      const res = await apiCall("POST", `api/playbooks/${p.id}/run`);
+      if (!res) return;
+      Object.assign(p, res.playbook);
+      if (res.handled) {
+        const al = state.alerts.find((x) => x.id === res.handled);
+        if (al) { al.status = p.name.includes("封禁") ? "已封禁" : "已解决"; al.handledBy = "剧本:" + p.name; }
+      }
+      if (res.feed) pushFeedEntry(res.feed);
+      save.alerts(); save.playbooks();
+      renderPlaybooks(); renderKpis();
+      toast(res.handled ? `剧本执行完成:已处置告警 ${res.handled}` : "当前没有待处置告警,剧本完成一次空跑演练",
+        res.handled ? "ok" : "info");
+      return;
+    }
 
     const target = state.alerts.find((a) => a.status === "待处置");
     p.runCount++; p.lastRun = Date.now();
@@ -574,6 +685,7 @@
   $("#logoutBtn").addEventListener("click", async () => {
     const ok = await confirmModal({ title: "退出登录", body: "确定要退出安全运营控制台吗?", okText: "退出" });
     if (!ok) return;
+    if (mode === "api") { try { await API.call("POST", "api/auth/logout"); } catch {} }
     N.clearSession();
     location.replace("index.html");
   });
@@ -585,5 +697,5 @@
   renderAssets();
   renderPlaybooks();
   renderReports();
-  drawCharts(); // 脚本位于 body 末尾,布局已就绪,直接同步绘制
+  drawCharts();
 })();

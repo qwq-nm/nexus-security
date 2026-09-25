@@ -1,65 +1,69 @@
 # NEXUS · 网络安全态势感知平台
 
-一个以**网络安全**为主题、前端功能完整的产品站:深色科技风落地页 + 可登录的安全运营控制台(SOC)。
+以**网络安全**为主题的全栈产品站:Editorial Noir 艺术风落地页 + 真实后端(SQLite / 会话认证 / REST API / SSE)驱动的安全运营控制台。
 
-> 灵感来自 [Aura](https://www.aura.build/browse/components) 模板广场中的 **Network Security SaaS Landing Page Template** 风格,全部代码为原创实现。
-> 纯前端演示:用户体系与业务数据存储于浏览器 localStorage,**请勿用于真实生产环境**。
+> 灵感来自 [Aura](https://www.aura.build/browse/components) 模板广场,全部代码为原创实现。
+> ⚠️ 安全提示:内置的认证与存储机制用于产品演示,直接上生产前需补充 HTTPS 强制、CSRF 防护、审计日志与专业安全评审。
 
-## ✨ 功能
+## ✨ 两种运行模式(前端自动探测)
 
-### 落地页(index.html)
-- 🌐 Canvas 线框网络球体:斐波那契球面布点 + 近邻连线 + 鼠标视差
-- 🖥️ 威胁事件流终端:CRIT / HIGH / MED / OK 分级告警自动滚动
-- 📊 数字滚动、滚动入场动画、响应式布局、移动端抽屉导航
-- 全部 CTA 已接入真实页面(注册 / 登录 / 控制台)
+| 模式 | 触发条件 | 数据存储 | 认证 |
+| --- | --- | --- | --- |
+| **真实模式** | `npm start` 启动后端 | SQLite(`data/nexus.db`,WAL) | scrypt 口令散列 + HTTP-only 会话 Cookie |
+| **演示模式** | 纯静态托管(如 GitHub Pages) | localStorage | 演示会话 |
 
-### 认证(login.html / register.html)
-- 注册:邮箱校验、密码强度评分、二次确认、条款勾选
-- 登录:错误提示、演示账号一键登录、`?next=` 登录后回跳
-- 密码 SHA-256 摘要存储(WebCrypto,不可用时自动降级)
+前端通过探测 `api/auth/me` 自动切换,同一套代码 both 可用。
 
-### 安全运营控制台(dashboard.html,需登录)
-- **总览**:KPI 卡片、近 7 日告警趋势(面积/折线)、攻击类型分布环形图、实时事件流
-- **告警中心**:14 条种子告警;按等级/状态/关键词筛选;封禁、隔离(带确认弹窗)、忽略、解决、重新处理等处置动作,全部持久化
-- **资产管理**:10 个资产;风险评分条、暴露端口;隔离 / 恢复上线 / 发起扫描
-- **处置剧本**:6 个自动化剧本;启用开关、立即执行(自动处置一条待办告警并写入事件流)
-- **报表中心**:合规基线达标率动画、风险 Top 5 资产、周报归档
-- 登录守卫:未登录访问自动跳转 `login.html?next=dashboard.html`
+## 🎨 落地页
+
+- **开场动画**:盾牌描边 → NEXUS 字母点亮 → 安全通道加载计数 → 幕布升起 → Hero 逐行入场(可点击跳过,尊重 prefers-reduced-motion)
+- **日食主视觉**:Canvas 黑洞圆盘 + 青色电弧边缘 + 620 颗轨道粒子(前后排遮挡)+ 星空,鼠标视差
+- **Editorial Noir 设计系统**:空心描边大字、等宽标签、胶片噪点、情报跑马灯、编号章节、细线网格
+- 威胁事件流终端、数字滚动、滚动入场、响应式 + 移动端抽屉导航
+
+## 🔐 认证(login / register)
+
+- 注册:邮箱校验、密码强度评分、SHA/scrypt 散列存储(每用户独立盐)
+- 登录:错误提示、演示账号一键登录、`?next=` 回跳、**登录限速(10 分钟 8 次/IP)**
+- 会话:随机 256-bit token,数据库只存 SHA-256 哈希,HTTP-only + SameSite=Lax,7 天有效期
+
+## 🖥️ 安全运营控制台(dashboard,需登录)
+
+- **总览**:KPI、近 7 日趋势图、攻击类型环形图、**SSE 实时事件流**(多标签页同步)
+- **告警中心**:筛选/搜索;封禁、隔离(确认弹窗)、忽略、解决等处置,**服务端权威执行并持久化**
+- **资产管理**:风险评分、隔离/恢复/扫描
+- **处置剧本**:启停开关、立即执行(服务端自动处置待办告警)
+- **报表中心**:合规达标率、风险 Top 5、周报归档
+- 登录守卫:api 模式由服务端 401 驱动跳转;demo 模式由前端守卫
+
+## 🚀 运行
+
+**真实模式(推荐)**:
+
+```bash
+npm install
+npm start          # → http://localhost:3000
+```
+
+演示账号:`demo@nexus.sec` / `demo1234`(也可注册任意新账号,自动生成独立数据)
+
+**演示模式**:直接静态托管根目录(或双击 index.html),无需任何构建。
 
 ## 📁 结构
 
 ```
 nexus-security/
-├── index.html          # 落地页
-├── login.html          # 登录
-├── register.html       # 注册
-├── dashboard.html      # 安全运营控制台(单页多视图)
-├── css/
-│   ├── style.css       # 设计系统与落地页样式
-│   └── app.css         # 认证页 + 控制台样式
-└── js/
-    ├── auth.js         # 用户与数据层(localStorage 模拟后端)
-    ├── auth-pages.js   # 登录/注册表单逻辑
-    ├── dashboard.js    # 控制台:状态、图表、处置动作
-    └── main.js         # 落地页:球体动画 / 交互
-```
-
-## 🚀 本地运行
-
-直接双击 `index.html`,或:
-
-```bash
-npx serve .
+├── index.html / login.html / register.html / dashboard.html
+├── css/  style.css · app.css · intro.css
+├── js/   main.js · intro.js · backend.js · auth.js · auth-pages.js · dashboard.js
+├── server/
+│   ├── server.js   # Express:认证 / REST / SSE / 静态托管 / 安全头 / 限速
+│   └── db.js       # node:sqlite:建表 / scrypt / 会话 / 种子数据
+├── data/           # nexus.db(gitignore)
+└── package.json
 ```
 
 ## 🌍 部署
 
-推送至 GitHub 后,在仓库 **Settings → Pages** 选择 `main` 分支 / 根目录即可。
-
-## 🔑 演示账号
-
-| 邮箱 | 密码 |
-| --- | --- |
-| `demo@nexus.sec` | `demo1234` |
-
-注册任意账号同样会获得一份独立的演示数据。
+- **后端**:任意 Node 主机 `npm start`(PORT 环境变量可改)
+- **纯静态**:推到 GitHub Pages 即自动进入演示模式

@@ -400,20 +400,23 @@
     </div>
   </footer>
 
+  <script src="js/backend.js?v=2"></script>
   <script src="js/auth.js?v=2"></script>
   <script src="js/main.js?v=4"></script>
   <script src="js/intro.js?v=2"></script>
   <script>
     // 已登录用户:导航栏"登录"替换为用户名,直达控制台
-    (function () {
-      var u = window.NEXUS && window.NEXUS.currentUser();
+    // api 模式用真实会话探测;demo 模式用 localStorage
+    (async function () {
+      var m = await window.NEXUS_MODE;
+      var u = m.mode === "api" ? m.user : (window.NEXUS && window.NEXUS.currentUser());
       if (!u) return;
       var login = document.getElementById("navLogin");
-      if (login) { login.textContent = u.name; login.href = "dashboard.html"; login.style.color = "#e8edf7"; }
+      if (login) { login.textContent = u.name; login.href = "dashboard.html"; login.style.color = "#eef1f7"; }
       var drawer = document.getElementById("drawerLogin");
       if (drawer) { drawer.textContent = "进入控制台(" + u.name + ")"; drawer.href = "dashboard.html"; }
       var demo = document.getElementById("heroDemo");
-      if (demo) demo.textContent = "进入控制台 ↓";
+      if (demo) demo.textContent = "进入控制台 →";
     })();
   </script>
 </body>

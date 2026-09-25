@@ -1,0 +1,12 @@
+{
+  "name": "nexus-security",
+  "version": "2.0.0",
+  "private": true,
+  "description": "NEXUS 网络安全态势感知平台 — 落地页 + 真实后端(SQLite / 会话认证 / REST API / SSE)",
+  "scripts": {
+    "start": "node server/server.js"
+  },
+  "dependencies": {
+    "express": "^4.22.3"
+  }
+}
