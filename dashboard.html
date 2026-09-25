@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>安全运营控制台 · NEXUS</title>
+  <meta name="description" content="NEXUS 安全运营控制台:实时告警、资产管理、自动化处置剧本与合规报表。" />
+  <meta name="theme-color" content="#03050d" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2l11 5v8c0 7.2-4.7 12.4-11 15C9.7 27.4 5 22.2 5 15V7l11-5z' fill='none' stroke='%233b82f6' stroke-width='2'/%3E%3Cpath d='M11 16l3.5 3.5L21 13' fill='none' stroke='%2360a5fa' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body class="app" data-page="dashboard">
+
+  <div class="app-shell">
+    <!-- ── 侧边栏 ── -->
+    <aside class="sidebar" id="sidebar" aria-label="控制台导航">
+      <a class="sidebar__logo" href="index.html">
+        <svg viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M16 2l11 5v8c0 7.2-4.7 12.4-11 15C9.7 27.4 5 22.2 5 15V7l11-5z" fill="none" stroke="currentColor" stroke-width="2"/>
+          <path d="M11 16l3.5 3.5L21 13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>NEXUS</span>
+      </a>
+      <nav class="sidebar__nav">
+        <button class="sidebar__item active" data-view="overview">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="5" rx="2"/><rect x="13" y="10" width="8" height="11" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/></svg>
+          总览<span class="sidebar__badge" id="navAlertBadge">0</span>
+        </button>
+        <button class="sidebar__item" data-view="alerts">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3l9.5 16.5H2.5L12 3z"/><path d="M12 10v4M12 17.2v.1" stroke-linecap="round"/></svg>
+          告警中心
+        </button>
+        <button class="sidebar__item" data-view="assets">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01" stroke-linecap="round"/></svg>
+          资产管理
+        </button>
+        <button class="sidebar__item" data-view="playbooks">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 2l8 3.5v6c0 5-3.4 8.7-8 10.5C7.4 20.2 4 16.5 4 11.5v-6L12 2z"/><path d="M8.8 12l2.2 2.2 4.4-4.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          处置剧本
+        </button>
+        <button class="sidebar__item" data-view="reports">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3h9l4 4v14H6V3z"/><path d="M9.5 16.5v-3M12.5 16.5v-6M15.5 16.5v-4.5" stroke-linecap="round"/></svg>
+          报表中心
+        </button>
+      </nav>
+      <div class="sidebar__foot sidebar__nav">
+        <a class="sidebar__item sidebar__back" href="index.html">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 5l-7 7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          返回官网
+        </a>
+        <button class="sidebar__item" id="logoutBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 4h4a1 1 0 011 1v14a1 1 0 01-1 1h-4M10 17l-5-5 5-5M5 12h9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          退出登录
+        </button>
+      </div>
+    </aside>
+
+    <!-- ── 主区域 ── -->
+    <div class="app-main">
+      <header class="topbar">
+        <button class="mini-btn topbar__burger" id="burger" aria-label="菜单">☰</button>
+        <div>
+          <h1 class="topbar__title" id="viewTitle">总览</h1>
+          <p class="topbar__sub" id="viewSub">你的网络此刻正处于监控之下</p>
+        </div>
+        <div class="topbar__right">
+          <span class="tag tag--ok"><span class="badge__dot"></span> 全部系统在线</span>
+          <div class="userchip">
+            <span class="userchip__avatar" id="userAvatar">?</span>
+            <span><span id="userName">—</span><small id="userCompany"></small></span>
+          </div>
+        </div>
+      </header>
+
+      <main class="app-body">
+
+        <!-- ════ 总览 ════ -->
+        <section class="view active" data-view="overview">
+          <div class="kpis">
+            <div class="card kpi">
+              <p class="kpi__label">今日新增告警</p>
+              <p class="kpi__value" id="kpiAlerts">0</p>
+              <p class="kpi__delta up" id="kpiAlertsDelta">▲ 较昨日 +12%</p>
+            </div>
+            <div class="card kpi">
+              <p class="kpi__label">已自动拦截</p>
+              <p class="kpi__value" id="kpiBlocked">0</p>
+              <p class="kpi__delta down" id="kpiBlockedDelta">▼ 均响应 42ms</p>
+            </div>
+            <div class="card kpi">
+              <p class="kpi__label">待人工处置</p>
+              <p class="kpi__value" id="kpiPending">0</p>
+              <p class="kpi__delta" id="kpiPendingDelta">含 2 条严重告警</p>
+            </div>
+            <div class="card kpi">
+              <p class="kpi__label">监控资产</p>
+              <p class="kpi__value" id="kpiAssets">0</p>
+              <p class="kpi__delta down">▲ 全部探针在线</p>
+            </div>
+          </div>
+
+          <div class="grid-charts">
+            <div class="card chart-box">
+              <div class="card__head">
+                <p class="card__title">近 7 日告警趋势</p>
+                <p class="card__hint">■ 拦截 · □ 新增</p>
+              </div>
+              <canvas id="trendChart" aria-label="近7日告警趋势图"></canvas>
+            </div>
+            <div class="card">
+              <div class="card__head">
+                <p class="card__title">攻击类型分布</p>
+                <p class="card__hint">近 7 日</p>
+              </div>
+              <canvas id="typeChart" aria-label="攻击类型分布图"></canvas>
+              <div class="legend" id="typeLegend"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card__head">
+              <p class="card__title">实时事件流</p>
+              <p class="card__hint"><span class="badge__dot" style="display:inline-block;vertical-align:middle"></span> 实时更新</p>
+            </div>
+            <div class="feed" id="feed"></div>
+          </div>
+        </section>
+
+        <!-- ════ 告警中心 ════ -->
+        <section class="view" data-view="alerts">
+          <div class="toolbar">
+            <input type="search" id="alertSearch" placeholder="搜索告警 ID、来源 IP、资产或类型…" />
+            <select id="alertLevel">
+              <option value="">全部等级</option>
+              <option value="crit">严重</option>
+              <option value="high">高危</option>
+              <option value="med">中危</option>
+              <option value="low">低危</option>
+            </select>
+            <select id="alertStatus">
+              <option value="">全部状态</option>
+              <option value="待处置">待处置</option>
+              <option value="处理中">处理中</option>
+              <option value="已封禁">已封禁</option>
+              <option value="已隔离">已隔离</option>
+              <option value="已忽略">已忽略</option>
+              <option value="已解决">已解决</option>
+            </select>
+          </div>
+          <div class="table-wrap">
+            <table class="dt">
+              <thead>
+                <tr>
+                  <th>告警 ID</th><th>等级</th><th>类型</th><th>来源</th>
+                  <th>目标资产</th><th>状态</th><th>时间</th><th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="alertRows"></tbody>
+            </table>
+          </div>
+          <p class="empty" id="alertEmpty" hidden>没有符合条件的告警。</p>
+        </section>
+
+        <!-- ════ 资产管理 ════ -->
+        <section class="view" data-view="assets">
+          <div class="toolbar">
+            <input type="search" id="assetSearch" placeholder="搜索资产名称或 IP…" />
+            <select id="assetStatus">
+              <option value="">全部状态</option>
+              <option value="正常">正常</option>
+              <option value="告警">告警</option>
+              <option value="已隔离">已隔离</option>
+            </select>
+          </div>
+          <div class="table-wrap">
+            <table class="dt">
+              <thead>
+                <tr>
+                  <th>资产名称</th><th>类型</th><th>IP 地址</th><th>系统</th>
+                  <th>暴露端口</th><th>风险评分</th><th>状态</th><th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="assetRows"></tbody>
+            </table>
+          </div>
+          <p class="empty" id="assetEmpty" hidden>没有符合条件的资产。</p>
+        </section>
+
+        <!-- ════ 处置剧本 ════ -->
+        <section class="view" data-view="playbooks">
+          <div class="pb-grid" id="pbGrid"></div>
+        </section>
+
+        <!-- ════ 报表中心 ════ -->
+        <section class="view" data-view="reports">
+          <div class="report-grid">
+            <div class="card">
+              <div class="card__head">
+                <p class="card__title">合规基线达标率</p>
+                <p class="card__hint">每日自动评估</p>
+              </div>
+              <div class="compliance" id="compliance"></div>
+            </div>
+            <div class="card">
+              <div class="card__head">
+                <p class="card__title">风险最高的资产 Top 5</p>
+                <p class="card__hint">按风险评分</p>
+              </div>
+              <div class="compliance" id="riskTop"></div>
+            </div>
+            <div class="card" style="grid-column: 1 / -1;">
+              <div class="card__head">
+                <p class="card__title">安全周报归档</p>
+                <p class="card__hint">点击可下载(演示)</p>
+              </div>
+              <div class="report-list" id="reportList"></div>
+            </div>
+          </div>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Toast 与模态框挂载点 -->
+  <div class="toasts" id="toasts"></div>
+  <div id="modalRoot"></div>
+
+  <script src="js/auth.js?v=2"></script>
+  <script src="js/dashboard.js?v=2"></script>
+</body>
+</html>

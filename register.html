@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>注册 · NEXUS 网络安全态势感知平台</title>
+  <meta name="description" content="注册 NEXUS 账号,14 天全功能试用,立即获得专属安全运营控制台。" />
+  <meta name="theme-color" content="#04060f" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2l11 5v8c0 7.2-4.7 12.4-11 15C9.7 27.4 5 22.2 5 15V7l11-5z' fill='none' stroke='%233b82f6' stroke-width='2'/%3E%3Cpath d='M11 16l3.5 3.5L21 13' fill='none' stroke='%2360a5fa' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body data-page="register">
+  <div class="bg-layer" aria-hidden="true">
+    <div class="bg-glow bg-glow--hero"></div>
+    <div class="bg-grid"></div>
+  </div>
+
+  <main class="auth">
+    <div class="auth__card">
+      <a class="auth__logo" href="index.html">
+        <svg viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M16 2l11 5v8c0 7.2-4.7 12.4-11 15C9.7 27.4 5 22.2 5 15V7l11-5z" fill="none" stroke="currentColor" stroke-width="2"/>
+          <path d="M11 16l3.5 3.5L21 13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>NEXUS</span>
+      </a>
+      <h1 class="auth__title">创建你的账号</h1>
+      <p class="auth__sub">14 天全功能试用,无需信用卡。注册即获得专属控制台与演示数据。</p>
+
+      <form class="auth__form" id="regForm" novalidate>
+        <p class="form-error" id="regError" role="alert"></p>
+        <div class="field">
+          <label for="name">你的称呼</label>
+          <input id="name" name="name" type="text" placeholder="例如:张安全" autocomplete="name" required />
+        </div>
+        <div class="field">
+          <label for="company">公司 / 团队(选填)</label>
+          <input id="company" name="company" type="text" placeholder="例如:天枢科技" autocomplete="organization" />
+        </div>
+        <div class="field">
+          <label for="email">邮箱</label>
+          <input id="email" name="email" type="email" placeholder="you@company.com" autocomplete="email" required />
+        </div>
+        <div class="field">
+          <label for="password">密码</label>
+          <input id="password" name="password" type="password" placeholder="至少 8 位,含字母与数字" autocomplete="new-password" required />
+          <div class="strength" id="strength" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+          <p class="field__hint" id="strengthText">密码强度:—</p>
+        </div>
+        <div class="field">
+          <label for="confirm">确认密码</label>
+          <input id="confirm" name="confirm" type="password" placeholder="再输入一次" autocomplete="new-password" required />
+        </div>
+        <label class="checkline">
+          <input type="checkbox" id="agree" />
+          <span>我已阅读并同意<a href="#" onclick="return false">《服务条款》</a>与<a href="#" onclick="return false">《隐私政策》</a></span>
+        </label>
+        <button class="btn btn--primary btn--lg" type="submit" id="regBtn">创建账号并开始试用</button>
+      </form>
+
+      <div class="auth__divider">或</div>
+      <button class="btn btn--ghost auth__demo" id="demoBtn">先看看演示账号</button>
+
+      <p class="auth__alt">已有账号?<a href="login.html">直接登录</a> · <a href="index.html">返回官网</a></p>
+    </div>
+  </main>
+
+  <script src="js/auth.js?v=2"></script>
+  <script src="js/auth-pages.js?v=2"></script>
+</body>
+</html>

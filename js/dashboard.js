@@ -1,0 +1,589 @@
+/* ═══════════════════════════════════════════════
+   NEXUS · 安全运营控制台
+   视图:总览 / 告警中心 / 资产管理 / 处置剧本 / 报表
+   ═══════════════════════════════════════════════ */
+
+(() => {
+  "use strict";
+  const N = window.NEXUS;
+  const user = N.requireAuth();
+  if (!user) return;
+
+  /* ── 状态 ─────────────────────────────────── */
+  const state = {
+    alerts: N.read(N.K.alerts(user.email), []),
+    assets: N.read(N.K.assets(user.email), []),
+    playbooks: N.read(N.K.playbooks(user.email), []),
+    trend: N.read(N.K.trend(user.email), []),
+    feed: N.read(N.K.feed(user.email), []),
+  };
+  const save = {
+    alerts: () => N.write(N.K.alerts(user.email), state.alerts),
+    assets: () => N.write(N.K.assets(user.email), state.assets),
+    playbooks: () => N.write(N.K.playbooks(user.email), state.playbooks),
+    trend: () => N.write(N.K.trend(user.email), state.trend),
+    feed: () => N.write(N.K.feed(user.email), state.feed),
+  };
+
+  /* ── 工具 ─────────────────────────────────── */
+  const $ = (s) => document.querySelector(s);
+  const $$ = (s) => [...document.querySelectorAll(s)];
+  const pad = (n) => String(n).padStart(2, "0");
+  const fmtHM = (ts) => { const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  const fmtFull = (ts) => { const d = new Date(ts); return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  const LEVEL_NAME = { crit: "严重", high: "高危", med: "中危", low: "低危" };
+  const STATUS_TAG = { "待处置": "high", "处理中": "med", "已封禁": "crit", "已隔离": "crit", "已忽略": "idle", "已解决": "ok" };
+
+  function toast(msg, type = "ok") {
+    const icons = { ok: "✓", warn: "!", info: "i" };
+    const el = document.createElement("div");
+    el.className = "toast toast--" + type;
+    el.innerHTML = `<span class="toast__icon">${icons[type] || "i"}</span><span></span>`;
+    el.lastElementChild.textContent = msg;
+    $("#toasts").appendChild(el);
+    setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 350); }, 3200);
+  }
+
+  function confirmModal({ title, body, okText = "确认", danger = false }) {
+    return new Promise((resolve) => {
+      const root = $("#modalRoot");
+      root.innerHTML = `
+        <div class="modal-mask" role="dialog" aria-modal="true">
+          <div class="modal">
+            <h3></h3><p></p>
+            <div class="modal__actions">
+              <button class="btn btn--ghost" data-act="cancel">取消</button>
+              <button class="btn ${danger ? "btn--primary" : "btn--primary"}" data-act="ok"></button>
+            </div>
+          </div>
+        </div>`;
+      const mask = root.firstElementChild;
+      mask.querySelector("h3").textContent = title;
+      mask.querySelector("p").textContent = body;
+      const okBtn = mask.querySelector("[data-act='ok']");
+      okBtn.textContent = okText;
+      if (danger) okBtn.style.background = "linear-gradient(135deg,#dc2626,#f87171)";
+      const done = (v) => { root.innerHTML = ""; resolve(v); };
+      mask.addEventListener("click", (e) => {
+        if (e.target === mask) done(false);
+        if (e.target.dataset.act === "ok") done(true);
+        if (e.target.dataset.act === "cancel") done(false);
+      });
+    });
+  }
+
+  function pushFeed(level, msg) {
+    state.feed.unshift({ ts: Date.now(), level, msg });
+    state.feed = state.feed.slice(0, 30);
+    save.feed();
+    renderFeed();
+  }
+
+  /* ── 顶栏用户 ─────────────────────────────── */
+  $("#userName").textContent = user.name;
+  $("#userCompany").textContent = user.company || "个人空间";
+  $("#userAvatar").textContent = user.name.trim().charAt(0).toUpperCase() || "N";
+
+  /* ── 视图切换 ─────────────────────────────── */
+  const VIEW_META = {
+    overview: ["总览", "你的网络此刻正处于监控之下"],
+    alerts: ["告警中心", "全部安全事件与处置状态"],
+    assets: ["资产管理", "主机、容器与云资产的暴露面与风险"],
+    playbooks: ["处置剧本", "自动化响应规则:触发条件与执行动作"],
+    reports: ["报表中心", "合规达标率、风险排行与周报归档"],
+  };
+  let currentView = "overview";
+
+  function switchView(name) {
+    currentView = name;
+    $$(".sidebar__item[data-view]").forEach((b) => b.classList.toggle("active", b.dataset.view === name));
+    $$(".view").forEach((v) => v.classList.toggle("active", v.dataset.view === name));
+    $("#viewTitle").textContent = VIEW_META[name][0];
+    $("#viewSub").textContent = VIEW_META[name][1];
+    $("#sidebar").classList.remove("open");
+    if (name === "overview") { renderKpis(); drawCharts(); }
+    if (name === "alerts") renderAlerts();
+    if (name === "assets") renderAssets();
+    if (name === "playbooks") renderPlaybooks();
+    if (name === "reports") renderReports();
+    window.scrollTo(0, 0);
+  }
+  $$(".sidebar__item[data-view]").forEach((b) =>
+    b.addEventListener("click", () => switchView(b.dataset.view))
+  );
+  $("#burger").addEventListener("click", () => $("#sidebar").classList.toggle("open"));
+
+  /* ── 总览:KPI ────────────────────────────── */
+  function renderKpis() {
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const todayAlerts = state.alerts.filter((a) => a.ts >= todayStart.getTime()).length;
+    const pending = state.alerts.filter((a) => a.status === "待处置" || a.status === "处理中");
+    const critPending = pending.filter((a) => a.level === "crit").length;
+    const blocked = state.alerts.filter((a) => ["已封禁", "已解决"].includes(a.status)).length;
+
+    $("#kpiAlerts").textContent = todayAlerts || state.alerts.length;
+    $("#kpiBlocked").textContent = blocked;
+    $("#kpiPending").textContent = pending.length;
+    $("#kpiAssets").textContent = state.assets.length;
+    $("#kpiPendingDelta").textContent = critPending ? `含 ${critPending} 条严重告警` : "暂无严重告警";
+    $("#kpiPendingDelta").className = "kpi__delta " + (critPending ? "up" : "down");
+    $("#navAlertBadge").textContent = pending.length;
+    $("#navAlertBadge").style.display = pending.length ? "" : "none";
+  }
+
+  /* ── 总览:事件流 ─────────────────────────── */
+  function renderFeed() {
+    const box = $("#feed");
+    box.innerHTML = "";
+    for (const it of state.feed) {
+      const row = document.createElement("div");
+      row.className = "feed__row";
+      const dot = { ok: "ok", warn: "warn", crit: "crit" }[it.level] || "warn";
+      row.innerHTML = `<span class="feed__time"></span><span class="feed__dot feed__dot--${dot}"></span><span class="feed__msg"></span>`;
+      row.children[0].textContent = fmtHM(it.ts);
+      row.children[2].textContent = it.msg;
+      box.appendChild(row);
+    }
+  }
+
+  const AMBIENT_EVENTS = [
+    ["ok", "威胁情报库已同步,新增 IOC 1,024 条"],
+    ["warn", "资产 fin-wks-207 出站流量小幅升高,持续观察"],
+    ["ok", "探针心跳正常 · 1,284 个资产在线"],
+    ["warn", "检测到 3 次失败的 SSH 登录,已记录"],
+    ["ok", "日志管道延迟 0.8s,运行正常"],
+    ["crit", "情报命中:外部 IP 命中勒索软件 C2 名单,已自动封禁"],
+    ["ok", "合规基线快照完成,达标率 92.4%"],
+  ];
+  let ambIdx = 0;
+  setInterval(() => {
+    const [level, msg] = AMBIENT_EVENTS[ambIdx++ % AMBIENT_EVENTS.length];
+    state.feed.unshift({ ts: Date.now(), level, msg });
+    state.feed = state.feed.slice(0, 30);
+    if (currentView === "overview") renderFeed();
+  }, 9000);
+
+  /* ── 图表 ─────────────────────────────────── */
+  function setupCanvas(cv) {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = cv.clientWidth || 600;
+    const h = cv.clientHeight || 240;
+    cv.width = w * dpr; cv.height = h * dpr;
+    const ctx = cv.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { ctx, w, h };
+  }
+
+  function drawTrend() {
+    const { ctx, w, h } = setupCanvas($("#trendChart"));
+    const data = state.trend;
+    if (!data.length) return;
+    const padL = 34, padR = 12, padT = 14, padB = 26;
+    const iw = w - padL - padR, ih = h - padT - padB;
+    const maxV = Math.max(...data.map((d) => Math.max(d.alerts, d.blocked))) * 1.15;
+    const X = (i) => padL + (iw * i) / (data.length - 1);
+    const Y = (v) => padT + ih - (v / maxV) * ih;
+
+    // 横向网格与刻度
+    ctx.strokeStyle = "rgba(148,163,184,0.12)";
+    ctx.fillStyle = "rgba(148,163,184,0.55)";
+    ctx.font = "10.5px " + getComputedStyle(document.body).fontFamily;
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const v = (maxV / 4) * i, y = Y(v);
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+      ctx.fillText(Math.round(v), 6, y + 3.5);
+    }
+    data.forEach((d, i) => ctx.fillText(d.day, X(i) - 11, h - 8));
+
+    // 新增告警:面积 + 线
+    const area = ctx.createLinearGradient(0, padT, 0, padT + ih);
+    area.addColorStop(0, "rgba(59,130,246,0.35)");
+    area.addColorStop(1, "rgba(59,130,246,0)");
+    ctx.beginPath();
+    data.forEach((d, i) => (i ? ctx.lineTo(X(i), Y(d.alerts)) : ctx.moveTo(X(i), Y(d.alerts))));
+    ctx.lineTo(X(data.length - 1), padT + ih); ctx.lineTo(X(0), padT + ih); ctx.closePath();
+    ctx.fillStyle = area; ctx.fill();
+
+    ctx.beginPath();
+    data.forEach((d, i) => (i ? ctx.lineTo(X(i), Y(d.alerts)) : ctx.moveTo(X(i), Y(d.alerts))));
+    ctx.strokeStyle = "#60a5fa"; ctx.lineWidth = 2; ctx.stroke();
+
+    // 已拦截:线
+    ctx.beginPath();
+    data.forEach((d, i) => (i ? ctx.lineTo(X(i), Y(d.blocked)) : ctx.moveTo(X(i), Y(d.blocked))));
+    ctx.strokeStyle = "#22d3ee"; ctx.lineWidth = 2; ctx.setLineDash([5, 4]); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 数据点
+    data.forEach((d, i) => {
+      ctx.fillStyle = "#93c5fd";
+      ctx.beginPath(); ctx.arc(X(i), Y(d.alerts), 3, 0, Math.PI * 2); ctx.fill();
+    });
+  }
+
+  const TYPE_COLORS = ["#3b82f6", "#22d3ee", "#8b5cf6", "#f59e0b", "#f87171", "#34d399", "#64748b"];
+  function drawType() {
+    const counts = {};
+    for (const a of state.alerts) counts[a.type] = (counts[a.type] || 0) + 1;
+    let entries = Object.entries(counts).sort((x, y) => y[1] - x[1]);
+    if (entries.length > 6) {
+      const rest = entries.slice(6).reduce((s, e) => s + e[1], 0);
+      entries = entries.slice(0, 6).concat([["其他", rest]]);
+    }
+    const total = entries.reduce((s, e) => s + e[1], 0) || 1;
+
+    const { ctx, w, h } = setupCanvas($("#typeChart"));
+    const cx = w / 2, cy = h / 2, r = Math.min(w, h) / 2 - 14, rIn = r * 0.62;
+    let ang = -Math.PI / 2;
+    for (let i = 0; i < entries.length; i++) {
+      const slice = (entries[i][1] / total) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, ang, ang + slice);
+      ctx.arc(cx, cy, rIn, ang + slice, ang, true);
+      ctx.closePath();
+      ctx.fillStyle = TYPE_COLORS[i % TYPE_COLORS.length];
+      ctx.fill();
+      ang += slice;
+    }
+    ctx.fillStyle = "#e8edf7";
+    ctx.font = "700 22px " + getComputedStyle(document.body).fontFamily;
+    ctx.textAlign = "center";
+    ctx.fillText(String(total), cx, cy - 2);
+    ctx.font = "11px " + getComputedStyle(document.body).fontFamily;
+    ctx.fillStyle = "rgba(148,163,184,0.7)";
+    ctx.fillText("安全事件", cx, cy + 16);
+    ctx.textAlign = "left";
+
+    const legend = $("#typeLegend");
+    legend.innerHTML = "";
+    entries.forEach(([name, val], i) => {
+      const row = document.createElement("div");
+      row.className = "legend__row";
+      row.innerHTML = `<span class="legend__dot"></span><span></span><span class="legend__val"></span>`;
+      row.children[0].style.background = TYPE_COLORS[i % TYPE_COLORS.length];
+      row.children[1].textContent = name;
+      row.children[2].textContent = val;
+      legend.appendChild(row);
+    });
+  }
+
+  function drawCharts() { drawTrend(); drawType(); }
+
+  let rsTimer;
+  window.addEventListener("resize", () => {
+    clearTimeout(rsTimer);
+    rsTimer = setTimeout(() => { if (currentView === "overview") drawCharts(); }, 200);
+  });
+
+  /* ── 告警中心 ─────────────────────────────── */
+  function alertActions(a) {
+    const map = {
+      "待处置": [["封禁", "ban", ""], ["隔离", "isolate", "danger"], ["忽略", "ignore", ""]],
+      "处理中": [["标记解决", "resolve", "ok"], ["忽略", "ignore", ""]],
+      "已封禁": [["解除封禁", "unban", "ok"]],
+      "已隔离": [["解除隔离", "release", "ok"]],
+      "已忽略": [["重新处理", "reopen", ""]],
+      "已解决": [],
+    };
+    return map[a.status] || [];
+  }
+
+  async function handleAlertAction(act, id) {
+    const a = state.alerts.find((x) => x.id === id);
+    if (!a) return;
+    const asset = state.assets.find((x) => x.name === a.asset);
+
+    switch (act) {
+      case "ban":
+        a.status = "已封禁"; a.handledBy = user.name;
+        pushFeed("ok", `告警 ${a.id} 来源 IP 已封禁(${a.src})`);
+        toast(`已封禁来源 ${a.src}`);
+        break;
+      case "isolate": {
+        const ok = await confirmModal({
+          title: "隔离主机",
+          body: `将立即切断 ${a.asset} 的网络连接并保留内存取证快照,确认执行?`,
+          okText: "立即隔离", danger: true,
+        });
+        if (!ok) return;
+        a.status = "已隔离"; a.handledBy = user.name;
+        if (asset) asset.status = "已隔离";
+        pushFeed("crit", `告警 ${a.id} 触发主机隔离:${a.asset}`);
+        toast(`${a.asset} 已隔离,内存快照已保留`, "warn");
+        break;
+      }
+      case "ignore":
+        a.status = "已忽略";
+        pushFeed("warn", `告警 ${a.id} 被标记为忽略(${a.type})`);
+        toast(`告警 ${a.id} 已忽略`, "info");
+        break;
+      case "resolve":
+        a.status = "已解决"; a.handledBy = user.name;
+        pushFeed("ok", `告警 ${a.id} 已由 ${user.name} 处理完毕`);
+        toast(`告警 ${a.id} 已解决`);
+        break;
+      case "unban":
+        a.status = "已解决";
+        pushFeed("ok", `封禁策略已解除:${a.src}`);
+        toast(`已解除对 ${a.src} 的封禁`, "info");
+        break;
+      case "release":
+        a.status = "处理中";
+        if (asset && asset.status === "已隔离") asset.status = "告警";
+        pushFeed("warn", `主机 ${a.asset} 解除隔离,进入持续观察`);
+        toast(`${a.asset} 已恢复联网,状态转为处理中`, "info");
+        break;
+      case "reopen":
+        a.status = "待处置";
+        toast(`告警 ${a.id} 重新进入待处置队列`, "info");
+        break;
+    }
+    save.alerts(); save.assets();
+    renderAlerts(); renderKpis();
+  }
+
+  function renderAlerts() {
+    const kw = ($("#alertSearch").value || "").trim().toLowerCase();
+    const lv = $("#alertLevel").value;
+    const st = $("#alertStatus").value;
+    const list = state.alerts.filter((a) => {
+      if (lv && a.level !== lv) return false;
+      if (st && a.status !== st) return false;
+      if (kw && ![a.id, a.src, a.asset, a.type, a.desc].join(" ").toLowerCase().includes(kw)) return false;
+      return true;
+    }).sort((x, y) => y.ts - x.ts);
+
+    const tbody = $("#alertRows");
+    tbody.innerHTML = "";
+    for (const a of list) {
+      const tr = document.createElement("tr");
+      const ops = alertActions(a)
+        .map(([label, act, cls]) => `<button class="mini-btn mini-btn--${cls || "default"}" data-act="${act}" data-id="${a.id}">${label}</button>`)
+        .join("");
+      tr.innerHTML = `
+        <td class="td-mono">${a.id}</td>
+        <td><span class="tag tag--${a.level}">${LEVEL_NAME[a.level]}</span></td>
+        <td class="td-main"></td>
+        <td class="td-mono"></td>
+        <td class="td-dim"></td>
+        <td><span class="tag tag--${STATUS_TAG[a.status] || "idle"}">${a.status}</span></td>
+        <td class="td-mono">${fmtFull(a.ts)}</td>
+        <td><div class="row-actions">${ops || '<span class="td-dim">—</span>'}</div></td>`;
+      tr.children[2].textContent = a.type;
+      tr.children[3].textContent = a.src;
+      tr.children[4].textContent = a.asset;
+      tbody.appendChild(tr);
+    }
+    $("#alertEmpty").hidden = list.length > 0;
+  }
+  $("#alertRows").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-act]");
+    if (btn) handleAlertAction(btn.dataset.act, btn.dataset.id);
+  });
+  ["alertSearch", "alertLevel", "alertStatus"].forEach((id) => {
+    $("#" + id).addEventListener("input", renderAlerts);
+  });
+
+  /* ── 资产管理 ─────────────────────────────── */
+  function riskColor(v) { return v >= 60 ? "risk--high" : v >= 35 ? "risk--mid" : "risk--low"; }
+  const ASSET_TAG = { "正常": "ok", "告警": "high", "已隔离": "crit" };
+
+  async function handleAssetAction(act, id) {
+    const a = state.assets.find((x) => x.id === id);
+    if (!a) return;
+    if (act === "isolate") {
+      const ok = await confirmModal({
+        title: "隔离资产",
+        body: `将切断 ${a.name}(${a.ip})的全部网络连接,相关业务会受影响,确认执行?`,
+        okText: "立即隔离", danger: true,
+      });
+      if (!ok) return;
+      a.status = "已隔离";
+      state.alerts.forEach((al) => { if (al.asset === a.name && al.status === "处理中") al.status = "已隔离"; });
+      pushFeed("crit", `资产 ${a.name} 已被 ${user.name} 手动隔离`);
+      toast(`${a.name} 已隔离`, "warn");
+    } else if (act === "release") {
+      a.status = "正常";
+      pushFeed("ok", `资产 ${a.name} 解除隔离,恢复上线`);
+      toast(`${a.name} 已恢复上线`);
+    } else if (act === "rescan") {
+      a.risk = Math.max(5, Math.min(95, a.risk + Math.round((Math.random() - 0.6) * 14)));
+      pushFeed("ok", `资产 ${a.name} 完成一轮安全扫描`);
+      toast(`${a.name} 扫描完成,风险评分 ${a.risk}`, "info");
+    }
+    save.assets(); save.alerts();
+    renderAssets(); renderKpis();
+  }
+
+  function renderAssets() {
+    const kw = ($("#assetSearch").value || "").trim().toLowerCase();
+    const st = $("#assetStatus").value;
+    const list = state.assets.filter((a) => {
+      if (st && a.status !== st) return false;
+      if (kw && ![a.name, a.ip, a.type, a.os].join(" ").toLowerCase().includes(kw)) return false;
+      return true;
+    });
+    const tbody = $("#assetRows");
+    tbody.innerHTML = "";
+    for (const a of list) {
+      const tr = document.createElement("tr");
+      const ops = a.status === "已隔离"
+        ? `<button class="mini-btn mini-btn--ok" data-act="release" data-id="${a.id}">恢复上线</button>`
+        : `<button class="mini-btn mini-btn--danger" data-act="isolate" data-id="${a.id}">隔离</button>
+           <button class="mini-btn" data-act="rescan" data-id="${a.id}">扫描</button>`;
+      tr.innerHTML = `
+        <td class="td-main"></td>
+        <td class="td-dim"></td>
+        <td class="td-mono"></td>
+        <td class="td-dim"></td>
+        <td class="td-mono">${a.exposure}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div class="riskbar"><i class="${riskColor(a.risk)}" style="width:${a.risk}%"></i></div>
+            <span class="td-mono">${a.risk}</span>
+          </div>
+        </td>
+        <td><span class="tag tag--${ASSET_TAG[a.status] || "idle"}">${a.status}</span></td>
+        <td><div class="row-actions">${ops}</div></td>`;
+      tr.children[0].textContent = a.name;
+      tr.children[1].textContent = a.type;
+      tr.children[2].textContent = a.ip;
+      tr.children[3].textContent = a.os;
+      tbody.appendChild(tr);
+    }
+    $("#assetEmpty").hidden = list.length > 0;
+  }
+  $("#assetRows").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-act]");
+    if (btn) handleAssetAction(btn.dataset.act, btn.dataset.id);
+  });
+  ["assetSearch", "assetStatus"].forEach((id) => $("#" + id).addEventListener("input", renderAssets));
+
+  /* ── 处置剧本 ─────────────────────────────── */
+  function renderPlaybooks() {
+    const grid = $("#pbGrid");
+    grid.innerHTML = "";
+    for (const p of state.playbooks) {
+      const el = document.createElement("div");
+      el.className = "card pb";
+      el.innerHTML = `
+        <div class="pb__top">
+          <p class="pb__name"></p>
+          <label class="switch" title="启用/停用">
+            <input type="checkbox" data-act="toggle" data-id="${p.id}" ${p.enabled ? "checked" : ""}/>
+            <i></i>
+          </label>
+        </div>
+        <p class="pb__line"><b>触发:</b><span class="pb__trigger"></span></p>
+        <p class="pb__line"><b>动作:</b><span class="pb__action"></span></p>
+        <p class="pb__meta"></p>
+        <div class="pb__foot">
+          <button class="mini-btn" data-act="run" data-id="${p.id}">▶ 立即执行</button>
+          <span class="td-dim" style="font-size:12px">累计执行 ${p.runCount} 次</span>
+        </div>`;
+      el.querySelector(".pb__name").textContent = p.name;
+      el.querySelector(".pb__trigger").textContent = p.trigger;
+      el.querySelector(".pb__action").textContent = p.action;
+      el.querySelector(".pb__meta").textContent = p.lastRun
+        ? `上次运行:${fmtFull(p.lastRun)}`
+        : "尚未运行过 · 启用后由事件自动触发";
+      grid.appendChild(el);
+    }
+  }
+
+  $("#pbGrid").addEventListener("change", (e) => {
+    const input = e.target.closest("input[data-act='toggle']");
+    if (!input) return;
+    const p = state.playbooks.find((x) => x.id === input.dataset.id);
+    if (!p) return;
+    p.enabled = input.checked;
+    save.playbooks();
+    pushFeed(p.enabled ? "ok" : "warn", `剧本「${p.name}」已${p.enabled ? "启用" : "停用"}`);
+    toast(`剧本「${p.name}」已${p.enabled ? "启用" : "停用"}`, p.enabled ? "ok" : "info");
+  });
+
+  $("#pbGrid").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-act='run']");
+    if (!btn) return;
+    const p = state.playbooks.find((x) => x.id === btn.dataset.id);
+    if (!p) return;
+    if (!p.enabled) return toast("剧本已停用,请先开启开关再执行", "warn");
+
+    const target = state.alerts.find((a) => a.status === "待处置");
+    p.runCount++; p.lastRun = Date.now();
+    save.playbooks();
+    if (target) {
+      target.status = p.name.includes("封禁") ? "已封禁" : "已解决";
+      target.handledBy = "剧本:" + p.name;
+      save.alerts();
+      pushFeed("ok", `剧本「${p.name}」已自动处置告警 ${target.id}(${target.type})`);
+      toast(`剧本执行完成:已处置告警 ${target.id}`);
+    } else {
+      pushFeed("ok", `剧本「${p.name}」空跑演练完成,无待处置告警`);
+      toast("当前没有待处置告警,剧本完成一次空跑演练", "info");
+    }
+    renderPlaybooks(); renderKpis();
+  });
+
+  /* ── 报表中心 ─────────────────────────────── */
+  function renderReports() {
+    const comp = [
+      ["等保 2.0(三级)", 92], ["ISO 27001", 88], ["SOC 2 Type II", 95], ["GDPR", 81],
+    ];
+    const box = $("#compliance");
+    box.innerHTML = "";
+    for (const [name, val] of comp) {
+      const row = document.createElement("div");
+      row.className = "comp__row";
+      row.innerHTML = `<div class="comp__head"><span></span><b>${val}%</b></div>
+        <div class="comp__bar"><i style="width:${val}%"></i></div>`;
+      row.querySelector("span").textContent = name;
+      box.appendChild(row);
+    }
+
+    const top = [...state.assets].sort((a, b) => b.risk - a.risk).slice(0, 5);
+    const riskBox = $("#riskTop");
+    riskBox.innerHTML = "";
+    for (const a of top) {
+      const row = document.createElement("div");
+      row.className = "comp__row";
+      row.innerHTML = `<div class="comp__head"><span></span><b class="${a.risk >= 60 ? "tag tag--crit" : a.risk >= 35 ? "tag tag--high" : "tag tag--ok"}">${a.risk}</b></div>
+        <div class="comp__bar"><i class="${riskColor(a.risk)}" style="width:${a.risk}%"></i></div>`;
+      row.querySelector("span").textContent = `${a.name} · ${a.type}`;
+      riskBox.appendChild(row);
+    }
+
+    const reports = [
+      ["第 39 周安全周报", "2026-09-21"], ["等保 2.0 三级自查报告", "2026-09-18"],
+      ["9 月上半月威胁情报摘要", "2026-09-15"], ["Q3 渗透测试整改跟踪", "2026-09-08"],
+    ];
+    const list = $("#reportList");
+    list.innerHTML = "";
+    for (const [name, date] of reports) {
+      const a = document.createElement("a");
+      a.href = "#";
+      a.innerHTML = `<span></span><small>${date}</small>`;
+      a.children[0].textContent = name;
+      a.addEventListener("click", (e) => { e.preventDefault(); toast(`「${name}」为演示数据,暂不提供下载`, "info"); });
+      list.appendChild(a);
+    }
+  }
+
+  /* ── 退出登录 ─────────────────────────────── */
+  $("#logoutBtn").addEventListener("click", async () => {
+    const ok = await confirmModal({ title: "退出登录", body: "确定要退出安全运营控制台吗?", okText: "退出" });
+    if (!ok) return;
+    N.clearSession();
+    location.replace("index.html");
+  });
+
+  /* ── 初始化 ───────────────────────────────── */
+  renderKpis();
+  renderFeed();
+  renderAlerts();
+  renderAssets();
+  renderPlaybooks();
+  renderReports();
+  drawCharts(); // 脚本位于 body 末尾,布局已就绪,直接同步绘制
+})();

@@ -36,8 +36,8 @@
         <li><a href="#faq">FAQ</a></li>
       </ul>
       <div class="nav__actions">
-        <a class="nav__login" href="#" rel="noopener">登录</a>
-        <a class="btn btn--light btn--sm" href="#pricing">免费试用</a>
+        <a class="nav__login" href="login.html" id="navLogin">登录</a>
+        <a class="btn btn--light btn--sm" href="register.html">免费试用</a>
       </div>
       <button class="nav__burger" id="navBurger" aria-label="打开菜单" aria-expanded="false">
         <span></span><span></span><span></span>
@@ -49,7 +49,8 @@
       <a href="#soc">威胁中心</a>
       <a href="#pricing">定价</a>
       <a href="#faq">FAQ</a>
-      <a class="btn btn--light" href="#pricing">免费试用</a>
+      <a href="login.html" id="drawerLogin">登录</a>
+      <a class="btn btn--light" href="register.html">免费试用</a>
     </div>
   </header>
 
@@ -72,8 +73,8 @@
           自动识别威胁,毫秒级完成处置 —— 让团队专注于业务建设,而不是救火。
         </p>
         <div class="hero__cta reveal">
-          <a class="btn btn--primary btn--lg" href="#pricing">免费开始试用</a>
-          <a class="btn btn--ghost btn--lg" href="#soc">查看实时演示 ↓</a>
+          <a class="btn btn--primary btn--lg" href="register.html">免费开始试用</a>
+          <a class="btn btn--ghost btn--lg" href="dashboard.html" id="heroDemo">查看实时演示 ↓</a>
         </div>
         <p class="hero__meta reveal">无需信用卡 · 5 分钟接入 · SOC 2 Type II 认证</p>
       </div>
@@ -242,7 +243,7 @@
             <li>每日威胁报告</li>
             <li>社区支持</li>
           </ul>
-          <a class="btn btn--ghost plan__cta" href="#">免费开始</a>
+          <a class="btn btn--ghost plan__cta" href="register.html">免费开始</a>
         </article>
         <article class="plan plan--hot reveal">
           <p class="plan__tag">最受欢迎</p>
@@ -256,7 +257,7 @@
             <li>自动化处置剧本</li>
             <li>7×24 在线支持</li>
           </ul>
-          <a class="btn btn--primary plan__cta" href="#">开启 14 天试用</a>
+          <a class="btn btn--primary plan__cta" href="register.html">开启 14 天试用</a>
         </article>
         <article class="plan reveal">
           <h3 class="plan__name">企业版</h3>
@@ -269,7 +270,7 @@
             <li>专属 MSSP 专家团队</li>
             <li>SLA 99.99% 保障</li>
           </ul>
-          <a class="btn btn--ghost plan__cta" href="#">联系销售</a>
+          <a class="btn btn--ghost plan__cta" href="mailto:sales@nexussec.example">联系销售</a>
         </article>
       </div>
     </section>
@@ -310,8 +311,8 @@
         <h2 class="cta__title">今天就开始,别等下一次告警。</h2>
         <p class="cta__sub">14 天全功能试用,无需信用卡。接入那一刻起,你的网络就有了一名 7×24 在岗的安全专家。</p>
         <div class="cta__actions">
-          <a class="btn btn--light btn--lg" href="#">免费开始试用</a>
-          <a class="btn btn--outline btn--lg" href="#">预约产品演示</a>
+          <a class="btn btn--light btn--lg" href="register.html">免费开始试用</a>
+          <a class="btn btn--outline btn--lg" href="dashboard.html">进入控制台演示</a>
         </div>
       </div>
     </section>
@@ -336,7 +337,7 @@
         <a href="#how">工作原理</a>
         <a href="#features">核心能力</a>
         <a href="#pricing">定价</a>
-        <a href="#soc">威胁中心</a>
+        <a href="dashboard.html">控制台演示</a>
       </nav>
       <nav class="footer__col" aria-label="资源">
         <h4>资源</h4>
@@ -359,6 +360,20 @@
     </div>
   </footer>
 
+  <script src="js/auth.js?v=2"></script>
   <script src="js/main.js?v=2"></script>
+  <script>
+    // 已登录用户:导航栏"登录"替换为用户名,直达控制台
+    (function () {
+      var u = window.NEXUS && window.NEXUS.currentUser();
+      if (!u) return;
+      var login = document.getElementById("navLogin");
+      if (login) { login.textContent = u.name; login.href = "dashboard.html"; login.style.color = "#e8edf7"; }
+      var drawer = document.getElementById("drawerLogin");
+      if (drawer) { drawer.textContent = "进入控制台(" + u.name + ")"; drawer.href = "dashboard.html"; }
+      var demo = document.getElementById("heroDemo");
+      if (demo) demo.textContent = "进入控制台 ↓";
+    })();
+  </script>
 </body>
 </html>
