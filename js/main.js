@@ -9,110 +9,122 @@
 (() => {
   "use strict";
 
-  /* ── 1. 网络球体 ─────────────────────────── */
+  /* ── 1. 日食主视觉(黑洞圆盘 + 粒子环 + 星空)── */
   const canvas = document.getElementById("globe");
   if (canvas && canvas.getContext) {
     const ctx = canvas.getContext("2d");
     const DPR = Math.min(window.devicePixelRatio || 1, 2);
-    const POINTS = 340;          // 球面点数
-    let W = 0, H = 0, R = 0;
-    let rotY = 0, rotX = -0.28;
-    let targetRotX = -0.28;
+    let W = 0, H = 0, R = 0, CX = 0, CY = 0;
 
-    // 斐波那契球面均匀布点(单位球坐标系)
-    const pts = [];
-    const GA = Math.PI * (3 - Math.sqrt(5));
-    for (let i = 0; i < POINTS; i++) {
-      const y = 1 - (i / (POINTS - 1)) * 2;
-      const rad = Math.sqrt(1 - y * y);
-      const th = GA * i;
-      pts.push({ x: Math.cos(th) * rad, y, z: Math.sin(th) * rad, s: Math.random() });
-    }
-    // 旋转是刚体运动,三维邻居关系不变:初始化时预计算连线对
-    const LINK_DIST = 0.3; // 单位球弦长阈值
-    const pairs = [];
-    for (let i = 0; i < pts.length; i++) {
-      for (let j = i + 1; j < pts.length; j++) {
-        const dx = pts[i].x - pts[j].x, dy = pts[i].y - pts[j].y, dz = pts[i].z - pts[j].z;
-        const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        if (d < LINK_DIST) pairs.push([i, j]);
-      }
-    }
+    // 星空背景
+    const stars = Array.from({ length: 190 }, () => ({
+      x: Math.random(), y: Math.random(),
+      r: 0.4 + Math.random() * 1.2,
+      tw: Math.random() * Math.PI * 2,
+      spd: 0.4 + Math.random() * 1.2,
+    }));
+    // 轨道粒子环
+    const ring = Array.from({ length: 620 }, () => ({
+      ang: Math.random() * Math.PI * 2,
+      rad: 1.04 + Math.pow(Math.random(), 1.6) * 0.3,   // 1.04R ~ 1.34R
+      spd: (0.05 + Math.random() * 0.12) * (Math.random() > 0.12 ? 1 : -1),
+      size: 0.5 + Math.random() * 1.5,
+      glow: Math.random() > 0.93,
+    }));
 
     function resize() {
       const rect = canvas.getBoundingClientRect();
       W = rect.width; H = rect.height;
       canvas.width = W * DPR; canvas.height = H * DPR;
       ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-      R = Math.min(W, H) * 0.42;
+      R = Math.min(W, H) * 0.335;
+      CX = W * 0.5; CY = H * 0.5;
     }
     resize();
     window.addEventListener("resize", resize);
 
-    // 鼠标轻微视差
+    let parX = 0, parY = 0;
     window.addEventListener("pointermove", (e) => {
-      targetRotX = -0.28 + (e.clientY / window.innerHeight - 0.5) * 0.24;
+      parX = (e.clientX / window.innerWidth - 0.5) * 14;
+      parY = (e.clientY / window.innerHeight - 0.5) * 10;
     }, { passive: true });
-
-    function project(p) {
-      // 绕 Y 轴
-      const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
-      const x1 = p.x * cosY - p.z * sinY;
-      const z1 = p.x * sinY + p.z * cosY;
-      // 绕 X 轴
-      const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
-      const y2 = p.y * cosX - z1 * sinX;
-      const z2 = p.y * sinX + z1 * cosX;
-      const persp = 1 / (1.6 - z2 * 0.55);
-      return { x: x1 * R * persp, y: y2 * R * persp, z: z2, persp };
-    }
 
     let lastT = performance.now();
     function frame(t) {
       const dt = Math.min((t - lastT) / 1000, 0.05);
       lastT = t;
-      rotY += dt * 0.16;
-      rotX += (targetRotX - rotX) * 0.04;
-
       ctx.clearRect(0, 0, W, H);
-      const cx = W / 2, cy = H / 2;
-      const proj = pts.map(project);
+      const cx = CX + parX, cy = CY + parY;
 
-      // 球体辉光
-      const glow = ctx.createRadialGradient(cx, cy, R * 0.1, cx, cy, R * 1.35);
-      glow.addColorStop(0, "rgba(37, 99, 235, 0.16)");
-      glow.addColorStop(0.55, "rgba(37, 99, 235, 0.06)");
-      glow.addColorStop(1, "rgba(37, 99, 235, 0)");
+      // 星空
+      for (const s of stars) {
+        s.tw += dt * s.spd;
+        const a = 0.14 + Math.abs(Math.sin(s.tw)) * 0.5;
+        ctx.fillStyle = `rgba(210, 225, 245, ${a.toFixed(3)})`;
+        ctx.beginPath();
+        ctx.arc(s.x * W, s.y * H, s.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 外围辉光
+      const glow = ctx.createRadialGradient(cx, cy, R * 0.9, cx, cy, R * 1.75);
+      glow.addColorStop(0, "rgba(56, 225, 255, 0.10)");
+      glow.addColorStop(0.5, "rgba(56, 225, 255, 0.035)");
+      glow.addColorStop(1, "rgba(56, 225, 255, 0)");
       ctx.fillStyle = glow;
       ctx.fillRect(0, 0, W, H);
 
-      // 点间连线(透明度随深度渐变:背面暗、正面亮)
-      ctx.lineWidth = 1;
-      for (let k = 0; k < pairs.length; k++) {
-        const a = proj[pairs[k][0]], b = proj[pairs[k][1]];
-        const depth = (a.z + b.z) / 2;                       // -1 后方 … 1 前方
-        const alpha = 0.05 + ((depth + 1) / 2) * 0.5;
-        ctx.strokeStyle = `rgba(96, 165, 250, ${alpha.toFixed(3)})`;
-        ctx.beginPath();
-        ctx.moveTo(cx + a.x, cy + a.y);
-        ctx.lineTo(cx + b.x, cy + b.y);
-        ctx.stroke();
+      // 轨道粒子环 —— 两遍绘制:后排(上半圈)先画,被圆盘遮挡;前排(下半圈)在盘后再画
+      const drawRing = (front) => {
+        for (const p of ring) {
+          const isFront = Math.sin(p.ang) >= 0;
+          if (isFront !== front) continue;
+          p.ang += p.spd * dt;
+          const x = cx + Math.cos(p.ang) * R * p.rad;
+          const y = cy + Math.sin(p.ang) * R * p.rad * 0.96;
+          const depth = 0.5 + 0.5 * Math.sin(p.ang);
+          const alpha = (0.18 + depth * 0.7) * (p.glow ? 1 : 0.55);
+          ctx.fillStyle = p.glow
+            ? `rgba(140, 240, 255, ${alpha.toFixed(3)})`
+            : `rgba(160, 205, 225, ${(alpha * 0.8).toFixed(3)})`;
+          ctx.beginPath();
+          ctx.arc(x, y, p.size * (0.6 + depth * 0.7), 0, Math.PI * 2);
+          ctx.fill();
+        }
+      };
+      drawRing(false);
+
+      // 黑洞圆盘(先画盘,遮住环的后排粒子,再补一次前排粒子)
+      const disc = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R);
+      disc.addColorStop(0, "#000205");
+      disc.addColorStop(0.82, "#000103");
+      disc.addColorStop(1, "rgba(2, 4, 10, 0.94)");
+      ctx.fillStyle = disc;
+      ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
+
+      // 日食边缘辉光(上亮下暗,模拟光源方向)
+      for (const [a0, a1, width, color] of [
+        [-Math.PI * 1.15, -Math.PI * -0.15, 2.2, "rgba(160, 240, 255, 0.95)"],
+        [Math.PI * 0.75, Math.PI * 1.35, 1.1, "rgba(90, 170, 200, 0.4)"],
+      ]) {
+        ctx.save();
+        ctx.strokeStyle = color; ctx.lineWidth = width;
+        ctx.shadowColor = "rgba(56, 225, 255, 0.9)"; ctx.shadowBlur = 22;
+        ctx.beginPath(); ctx.arc(cx, cy, R, a0, a1); ctx.stroke();
+        ctx.restore();
+      }
+      // 内缘暗环
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.85)"; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(cx, cy, R - 1.6, 0, Math.PI * 2); ctx.stroke();
+
+      // 细轨道线
+      ctx.strokeStyle = "rgba(160, 205, 225, 0.09)"; ctx.lineWidth = 1;
+      for (const rr of [1.13, 1.26]) {
+        ctx.beginPath(); ctx.ellipse(cx, cy, R * rr, R * rr * 0.96, 0, 0, Math.PI * 2); ctx.stroke();
       }
 
-      // 球面节点
-      for (let i = 0; i < proj.length; i++) {
-        const p = proj[i];
-        const front = (p.z + 1) / 2;                       // 0 后 … 1 前
-        const size = (0.9 + p.s * 1.7) * (0.55 + front * 0.9);
-        const alpha = 0.25 + front * 0.65;
-        ctx.fillStyle =
-          p.s > 0.955
-            ? `rgba(147, 197, 253, ${alpha.toFixed(3)})`
-            : `rgba(96, 165, 250, ${(alpha * 0.85).toFixed(3)})`;
-        ctx.beginPath();
-        ctx.arc(cx + p.x, cy + p.y, size, 0, Math.PI * 2);
-        ctx.fill();
-      }
+      // 前排粒子补画(盖在圆盘上,形成环绕感)
+      drawRing(true);
 
       requestAnimationFrame(frame);
     }

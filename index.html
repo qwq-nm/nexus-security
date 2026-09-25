@@ -7,7 +7,7 @@
   <meta name="description" content="NEXUS 是一个实时网络安全监测与响应平台:全网流量监测、威胁情报分析、自动化处置,毫秒级响应,守护你的整个基础设施。" />
   <meta name="theme-color" content="#04060f" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2l11 5v8c0 7.2-4.7 12.4-11 15C9.7 27.4 5 22.2 5 15V7l11-5z' fill='none' stroke='%233b82f6' stroke-width='2'/%3E%3Cpath d='M11 16l3.5 3.5L21 13' fill='none' stroke='%2360a5fa' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
-  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/style.css?v=3" />
 </head>
 <body>
 
@@ -60,13 +60,11 @@
     <section class="hero">
       <canvas id="globe" class="hero__globe" aria-hidden="true"></canvas>
       <div class="hero__inner">
-        <p class="badge reveal">
-          <span class="badge__dot"></span>
-          已获全球 2,400+ 安全团队信任
-        </p>
+        <p class="hero__eyebrow reveal">NEXUS — Real-time Threat Intelligence</p>
         <h1 class="hero__title reveal">
-          看见每一次威胁。<br />
-          <span class="hero__title-gradient">在它开始之前阻断。</span>
+          <span class="line line--en">DETECT <b>/</b> ANALYZE <b>/</b> RESPOND</span>
+          <span class="line stroke-text">看见每一次威胁。</span>
+          <span class="line">在它开始之前<span class="accent">阻断。</span></span>
         </h1>
         <p class="hero__sub reveal">
           NEXUS 是一个实时网络安全态势感知平台,持续监测你的全部基础设施,
@@ -74,22 +72,32 @@
         </p>
         <div class="hero__cta reveal">
           <a class="btn btn--primary btn--lg" href="register.html">免费开始试用</a>
-          <a class="btn btn--ghost btn--lg" href="dashboard.html" id="heroDemo">查看实时演示 ↓</a>
+          <a class="btn btn--ghost btn--lg" href="dashboard.html" id="heroDemo">查看实时演示 →</a>
         </div>
         <p class="hero__meta reveal">无需信用卡 · 5 分钟接入 · SOC 2 Type II 认证</p>
       </div>
     </section>
 
+    <!-- ═══════════════ 情报跑马灯 ═══════════════ -->
+    <div class="ticker" aria-hidden="true">
+      <div class="ticker__track">
+        <span>威胁情报 <b>THREAT INTEL</b></span><span>零信任 <b>ZERO TRUST</b></span><span>入侵检测 <b>IDS / IPS</b></span><span>终端响应 <b>EDR</b></span><span>态势感知 <b>SAW</b></span><span>攻击溯源 <b>ATTRIBUTION</b></span><span>合规审计 <b>COMPLIANCE</b></span><span>自动化处置 <b>SOAR</b></span>
+      </div>
+      <div class="ticker__track">
+        <span>威胁情报 <b>THREAT INTEL</b></span><span>零信任 <b>ZERO TRUST</b></span><span>入侵检测 <b>IDS / IPS</b></span><span>终端响应 <b>EDR</b></span><span>态势感知 <b>SAW</b></span><span>攻击溯源 <b>ATTRIBUTION</b></span><span>合规审计 <b>COMPLIANCE</b></span><span>自动化处置 <b>SOAR</b></span>
+      </div>
+    </div>
+
     <!-- ═══════════════ 信任条 ═══════════════ -->
     <section class="trust reveal" aria-label="客户">
-      <p class="trust__label">深受行业领先团队信赖</p>
+      <p class="trust__label">Trusted by industry leaders / 深受行业领先团队信赖</p>
       <div class="trust__logos">
-        <span>◈ 天枢云</span>
-        <span>◆ HItechart</span>
-        <span>◉ 极目银行</span>
-        <span>▣ STARLINK&nbsp;PAY</span>
-        <span>◇ 九州电力</span>
-        <span>⬡ MetaGrid</span>
+        <span>天枢云</span>
+        <span>HItechart</span>
+        <span>极目银行</span>
+        <span>STARLINK&nbsp;PAY</span>
+        <span>九州电力</span>
+        <span>MetaGrid</span>
       </div>
     </section>
 
@@ -118,9 +126,12 @@
     <!-- ═══════════════ 工作原理 ═══════════════ -->
     <section class="section" id="how">
       <header class="section__head reveal">
-        <p class="section__eyebrow">HOW IT WORKS</p>
-        <h2 class="section__title">三步构建纵深防御</h2>
-        <p class="section__sub">从流量入口到终端主机,NEXUS 以一条自动化流水线完成检测、分析与处置。</p>
+        <div class="section__head-left">
+          <p class="section__eyebrow">How It Works</p>
+          <h2 class="section__title">三步构建纵深防御</h2>
+          <p class="section__sub">从流量入口到终端主机,NEXUS 以一条自动化流水线完成检测、分析与处置。</p>
+        </div>
+        <span class="section__num">01</span>
       </header>
       <ol class="steps">
         <li class="step reveal">
@@ -153,9 +164,12 @@
     <!-- ═══════════════ 核心能力 ═══════════════ -->
     <section class="section" id="features">
       <header class="section__head reveal">
-        <p class="section__eyebrow">FEATURES</p>
-        <h2 class="section__title">一个平台,覆盖全部攻击面</h2>
-        <p class="section__sub">六大核心能力模块化组合,按需开启,像搭积木一样构建你的防御体系。</p>
+        <div class="section__head-left">
+          <p class="section__eyebrow">Capabilities</p>
+          <h2 class="section__title">一个平台,覆盖全部攻击面</h2>
+          <p class="section__sub">六大核心能力模块化组合,按需开启,像搭积木一样构建你的防御体系。</p>
+        </div>
+        <span class="section__num">02</span>
       </header>
       <div class="features">
         <article class="feature reveal">
@@ -206,9 +220,12 @@
     <!-- ═══════════════ 威胁中心(SOC 演示) ═══════════════ -->
     <section class="section" id="soc">
       <header class="section__head reveal">
-        <p class="section__eyebrow">THREAT CENTER</p>
-        <h2 class="section__title">像攻击者一样看清你的网络</h2>
-        <p class="section__sub">下面是 NEXUS 安全运营中心的实时事件流演示 —— 每一条告警都被自动分级、定位与处置。</p>
+        <div class="section__head-left">
+          <p class="section__eyebrow">Threat Center</p>
+          <h2 class="section__title">像攻击者一样看清你的网络</h2>
+          <p class="section__sub">下面是 NEXUS 安全运营中心的实时事件流演示 —— 每一条告警都被自动分级、定位与处置。</p>
+        </div>
+        <span class="section__num">03</span>
       </header>
       <div class="terminal reveal" aria-label="威胁事件流演示">
         <div class="terminal__bar">
@@ -228,9 +245,12 @@
     <!-- ═══════════════ 定价 ═══════════════ -->
     <section class="section" id="pricing">
       <header class="section__head reveal">
-        <p class="section__eyebrow">PRICING</p>
-        <h2 class="section__title">简单透明的定价</h2>
-        <p class="section__sub">从个人项目到大型企业,总有适合你的防护等级。随时升级,随时取消。</p>
+        <div class="section__head-left">
+          <p class="section__eyebrow">Pricing</p>
+          <h2 class="section__title">简单透明的定价</h2>
+          <p class="section__sub">从个人项目到大型企业,总有适合你的防护等级。随时升级,随时取消。</p>
+        </div>
+        <span class="section__num">04</span>
       </header>
       <div class="plans">
         <article class="plan reveal">
@@ -278,8 +298,11 @@
     <!-- ═══════════════ FAQ ═══════════════ -->
     <section class="section section--narrow" id="faq">
       <header class="section__head reveal">
-        <p class="section__eyebrow">FAQ</p>
-        <h2 class="section__title">常见问题</h2>
+        <div class="section__head-left">
+          <p class="section__eyebrow">FAQ</p>
+          <h2 class="section__title">常见问题</h2>
+        </div>
+        <span class="section__num">05</span>
       </header>
       <div class="faq">
         <details class="faq__item reveal">
@@ -361,7 +384,7 @@
   </footer>
 
   <script src="js/auth.js?v=2"></script>
-  <script src="js/main.js?v=2"></script>
+  <script src="js/main.js?v=3"></script>
   <script>
     // 已登录用户:导航栏"登录"替换为用户名,直达控制台
     (function () {
