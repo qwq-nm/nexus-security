@@ -1520,7 +1520,18 @@
     URL.revokeObjectURL(a.href);
   }
   $("#exportAlerts").addEventListener("click", () => {
-    if (mode === "api") { window.location.href = "api/export/alerts.csv"; return; }
+    if (mode === "api") {
+      // 跟随当前筛选条件导出
+      const params = new URLSearchParams();
+      const q = $("#alertSearch").value.trim();
+      const lv = $("#alertLevel").value;
+      const st = $("#alertStatus").value;
+      if (q) params.set("q", q);
+      if (lv) params.set("level", lv);
+      if (st) params.set("status", st);
+      window.location.href = "api/export/alerts.csv" + (params.toString() ? "?" + params.toString() : "");
+      return;
+    }
     downloadCsv("nexus-alerts.csv",
       ["告警ID", "等级", "类型", "来源", "目标资产", "状态", "时间", "处置人"],
       state.alerts.map((a) => [a.id, LEVEL_NAME[a.level], a.type, a.src, a.asset, a.status, new Date(a.ts).toLocaleString("zh-CN"), a.handledBy]));
@@ -1841,6 +1852,19 @@ ${pending.map((a) => `- [ ] ${a.id}(${LEVEL_NAME[a.level]})${a.type} → ${a.ass
     N.clearSession();
     location.replace("index.html");
   });
+
+  /* ── 新手引导(首次访问)───────────────────── */
+  if (!N.read("nexus_onboarded", false)) {
+    const bar = document.createElement("div");
+    bar.className = "onboard";
+    bar.innerHTML = `<span>👋 欢迎来到 NEXUS 控制台 —— 按 <b>1-6</b> 切换视图,<b>Ctrl+K</b> 唤起命令面板,点击告警行查看详情与处置。</span>`;
+    const ok = document.createElement("button");
+    ok.className = "mini-btn";
+    ok.textContent = "知道了";
+    ok.addEventListener("click", () => { bar.remove(); N.write("nexus_onboarded", true); });
+    bar.appendChild(ok);
+    document.querySelector(".kpis").before(bar);
+  }
 
   /* ── 初始化 ───────────────────────────────── */
   renderKpis();

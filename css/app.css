@@ -597,3 +597,13 @@ th.sortable:hover { color: var(--accent); }
   .kpi__label, .td-dim, .td-mono, .card__hint, .section__sub, .feed__time { color: #555 !important; }
   .tag--crit, .tag--high, .tag--med, .tag--ok { color: #111 !important; }
 }
+
+/* ── 新手引导条 ──────────────────────────── */
+.onboard {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 14px 18px; margin-bottom: 18px;
+  border-radius: 14px; font-size: 13.8px; color: var(--text-dim);
+  background: rgba(56, 225, 255, 0.06); border: 1px solid rgba(56, 225, 255, 0.3);
+}
+.onboard b { color: var(--accent); font-family: var(--mono); }
+.onboard .mini-btn { margin-left: auto; }

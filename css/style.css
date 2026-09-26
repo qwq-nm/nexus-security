@@ -577,3 +577,10 @@ body::after {
   background: rgba(148, 163, 184, 0.25); transition: background 0.2s ease;
 }
 .tst__dot.active { background: var(--accent); }
+
+/* ── 导航 scrollspy 高亮 ─────────────────── */
+.nav__links a.active { color: var(--accent); }
+.nav__links a.active::after {
+  content: ""; display: block; height: 1px; margin-top: 2px;
+  background: var(--accent);
+}

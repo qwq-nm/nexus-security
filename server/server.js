@@ -342,10 +342,21 @@ app.post("/api/alerts/simulate", requireUser, (req, res) => {
 /* ── CSV 导出(带 BOM,Excel 友好)────────── */
 app.get("/api/export/:what.csv", requireUser, (req, res) => {
   const uid = req.user.id;
+  const q = String(req.query.q || "").toLowerCase();
+  const level = String(req.query.level || "");
+  const status = String(req.query.status || "");
   let rows, header;
   if (req.params.what === "alerts") {
     header = ["告警ID", "等级", "类型", "来源", "目标资产", "状态", "时间", "处置人"];
-    rows = store.getAlerts(uid).map((a) => [a.id, a.level, a.type, a.src, a.asset, a.status, new Date(a.ts).toLocaleString("zh-CN"), a.handledBy]);
+    rows = store
+      .getAlerts(uid)
+      .filter((a) => {
+        if (level && a.level !== level) return false;
+        if (status && a.status !== status) return false;
+        if (q && ![a.id, a.src, a.asset, a.type, a.desc].join(" ").toLowerCase().includes(q)) return false;
+        return true;
+      })
+      .map((a) => [a.id, a.level, a.type, a.src, a.asset, a.status, new Date(a.ts).toLocaleString("zh-CN"), a.handledBy]);
   } else if (req.params.what === "assets") {
     header = ["资产名称", "类型", "IP", "系统", "暴露端口", "风险评分", "状态"];
     rows = store.getAssets(uid).map((a) => [a.name, a.type, a.ip, a.os, a.exposure, a.risk, a.status]);

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>快速开始 · 文档 · NEXUS</title>
+  <meta name="description" content="NEXUS 快速开始指南:注册接入、部署探针、调用 API,五分钟完成安全监控接入。" />
+  <meta name="theme-color" content="#030408" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2l11 5v8c0 7.2-4.7 12.4-11 15C9.7 27.4 5 22.2 5 15V7l11-5z' fill='none' stroke='%2338e1ff' stroke-width='2'/%3E%3Cpath d='M11 16l3.5 3.5L21 13' fill='none' stroke='%2338e1ff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="css/style.css?v=3" />
+  <style>
+    .docs { max-width: 880px; margin: 0 auto; padding: 150px 24px 90px; }
+    .docs__eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.34em; color: var(--accent); text-transform: uppercase; }
+    .docs h1 { margin-top: 16px; font-size: clamp(30px, 4.6vw, 48px); font-weight: 800; }
+    .docs > p.lead { margin-top: 14px; color: var(--text-dim); max-width: 620px; }
+    .docs h2 {
+      margin-top: 64px; padding-top: 26px; border-top: 1px solid var(--line);
+      font-size: 24px; font-weight: 750;
+      display: flex; align-items: baseline; gap: 14px;
+    }
+    .docs h2 .no { font-family: var(--mono); font-size: 13px; color: var(--accent); }
+    .docs p { margin-top: 12px; color: var(--text-dim); font-size: 15px; }
+    .steps-doc { counter-reset: ds; display: grid; gap: 14px; margin-top: 20px; }
+    .steps-doc li {
+      counter-increment: ds; position: relative;
+      padding: 18px 20px 18px 58px;
+      background: var(--surface); border: 1px solid var(--line-soft); border-radius: 14px;
+    }
+    .steps-doc li::before {
+      content: counter(ds, decimal-leading-zero);
+      position: absolute; left: 18px; top: 18px;
+      font-family: var(--mono); font-size: 13px; color: var(--accent);
+    }
+    .steps-doc b { display: block; font-size: 15.5px; }
+    .steps-doc span { color: var(--text-dim); font-size: 13.8px; }
+    pre.code {
+      margin-top: 16px; padding: 18px 20px; border-radius: 12px;
+      background: rgba(4, 6, 12, 0.9); border: 1px solid var(--line-soft);
+      font-family: var(--mono); font-size: 12.8px; line-height: 1.8;
+      color: #b8c4d8; overflow-x: auto; white-space: pre;
+    }
+    pre.code .k { color: var(--accent); }
+    table.api { width: 100%; border-collapse: collapse; margin-top: 18px; font-size: 13.8px; }
+    table.api th, table.api td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line-soft); }
+    table.api th { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; color: var(--text-faint); text-transform: uppercase; }
+    table.api td:first-child { font-family: var(--mono); font-size: 12.3px; color: var(--accent); white-space: nowrap; }
+    table.api td:last-child { color: var(--text-dim); }
+    .pill-get, .pill-post, .pill-put, .pill-del {
+      display: inline-block; padding: 2px 8px; margin-right: 8px; border-radius: 6px;
+      font-family: var(--mono); font-size: 11px; font-weight: 700;
+    }
+    .pill-get { color: var(--green); background: rgba(74, 222, 128, 0.1); }
+    .pill-post { color: var(--accent); background: rgba(56, 225, 255, 0.1); }
+    .pill-put { color: var(--amber); background: rgba(251, 191, 36, 0.1); }
+    .pill-del { color: var(--red); background: rgba(248, 113, 113, 0.1); }
+  </style>
+</head>
+<body>
+  <div class="bg-layer" aria-hidden="true">
+    <div class="bg-glow bg-glow--hero"></div>
+    <div class="bg-grid"></div>
+  </div>
+
+  <header class="nav-wrap">
+    <nav class="nav">
+      <a class="nav__logo" href="index.html">
+        <svg class="nav__logo-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M16 2l11 5v8c0 7.2-4.7 12.4-11 15C9.7 27.4 5 22.2 5 15V7l11-5z" fill="none" stroke="currentColor" stroke-width="2"/>
+          <path d="M11 16l3.5 3.5L21 13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>NEXUS</span>
+      </a>
+      <div class="nav__actions">
+        <a class="nav__login" href="status.html">系统状态</a>
+        <a class="btn btn--light btn--sm" href="register.html">免费试用</a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="docs">
+    <p class="docs__eyebrow">Documentation</p>
+    <h1>快速开始</h1>
+    <p class="lead">从注册到看到第一条告警,通常不超过 5 分钟。以下指南适用于演示环境与自托管部署。</p>
+
+    <h2><span class="no">01</span>三步接入</h2>
+    <ol class="steps-doc">
+      <li><b>注册账号</b><span>在注册页创建账号,系统会自动为你生成一套演示数据与专属控制台。</span></li>
+      <li><b>接入数据源</b><span>选择流量镜像、eBPF 探针或云端只读 API 三种方式之一,对业务零侵入。</span></li>
+      <li><b>开启自动处置</b><span>在控制台「处置剧本」中启用预置剧本,引擎将按触发条件自动响应。</span></li>
+    </ol>
+
+    <h2><span class="no">02</span>本地部署</h2>
+    <p>项目为纯 Node 实现,无原生依赖,克隆后两条命令即可运行:</p>
+    <pre class="code"><span class="k">$</span> git clone https://github.com/qwq-nm/nexus-security.git
+<span class="k">$</span> cd nexus-security && npm install
+<span class="k">$</span> npm start
+<span class="k">#</span> → http://localhost:3000  (SQLite 数据库位于 data/nexus.db)</pre>
+    <p>纯静态托管(GitHub Pages 等)会自动进入浏览器演示模式,无需后端。</p>
+
+    <h2><span class="no">03</span>API 参考</h2>
+    <p>所有接口均需会话 Cookie(登录后自动携带),返回 JSON。以下是常用端点:</p>
+    <table class="api">
+      <thead><tr><th>端点</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><span class="pill-post">POST</span>/api/auth/register</td><td>注册账号并初始化演示数据</td></tr>
+        <tr><td><span class="pill-post">POST</span>/api/auth/login</td><td>登录(每 IP 10 分钟限 8 次)</td></tr>
+        <tr><td><span class="pill-get">GET</span>/api/bootstrap</td><td>一次性拉取控制台全部数据</td></tr>
+        <tr><td><span class="pill-get">GET</span>/api/presence</td><td>当前在线分析师列表</td></tr>
+        <tr><td><span class="pill-post">POST</span>/api/alerts/:id/action</td><td>处置告警:ban / isolate / ignore / resolve / unban / release / reopen</td></tr>
+        <tr><td><span class="pill-post">POST</span>/api/alerts/batch</td><td>批量处置(仅 resolve / ignore)</td></tr>
+        <tr><td><span class="pill-post">POST</span>/api/alerts/simulate</td><td>注入一条模拟告警(红队演练)</td></tr>
+        <tr><td><span class="pill-post">POST</span>/api/playbooks</td><td>创建自定义处置剧本</td></tr>
+        <tr><td><span class="pill-put">PUT</span>/api/auth/profile</td><td>更新称呼与公司信息</td></tr>
+        <tr><td><span class="pill-put">PUT</span>/api/auth/password</td><td>修改密码(校验旧密码)</td></tr>
+        <tr><td><span class="pill-get">GET</span>/api/export/alerts.csv</td><td>导出告警 CSV(带筛选参数)</td></tr>
+        <tr><td><span class="pill-get">GET</span>/api/stream</td><td>SSE 实时事件流</td></tr>
+      </tbody>
+    </table>
+
+    <h2><span class="no">04</span>示例:拉取并处置一条告警</h2>
+    <pre class="code"><span class="k">$</span> curl -c cookies.txt -X POST localhost:3000/api/auth/login \
+    -H "Content-Type: application/json" \
+    -d '{"email":"demo@nexus.sec","password":"demo1234"}'
+
+<span class="k">$</span> curl -b cookies.txt -X POST localhost:3000/api/alerts/ALT-10247/action \
+    -H "Content-Type: application/json" \
+    -d '{"action":"ban"}'
+<span class="k">#</span> → {"ok":true,"feed":{"level":"ok","msg":"告警 ALT-10247 来源 IP 已封禁…"}}.</pre>
+
+    <h2><span class="no">05</span>常见问题</h2>
+    <p>误报太多?处置会不会误杀?数据安全吗?——参见官网 <a href="index.html#faq" style="color:var(--accent)">FAQ 章节</a>,或直接进入<a href="dashboard.html" style="color:var(--accent)">控制台</a>体验。</p>
+  </main>
+
+  <footer class="footer">
+    <div class="footer__bar" style="border-top:none;margin-top:0;padding-top:0">
+      <p>© 2026 NEXUS Security. 仅为演示站点。</p>
+      <p class="footer__status"><span class="badge__dot"></span>docs.nexussec.example</p>
+    </div>
+  </footer>
+</body>
+</html>

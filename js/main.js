@@ -155,6 +155,21 @@
     restart();
   }
 
+  /* ── 1c. 落地页导航 scrollspy ──────────────── */
+  const spySections = ["how", "features", "soc", "pricing", "faq"]
+    .map((id) => document.getElementById(id))
+    .filter(Boolean);
+  const navLinks = [...document.querySelectorAll(".nav__links a")];
+  if (spySections.length && navLinks.length) {
+    const spy = new IntersectionObserver((entries) => {
+      for (const en of entries) {
+        if (!en.isIntersecting) continue;
+        navLinks.forEach((a) => a.classList.toggle("active", a.getAttribute("href") === "#" + en.target.id));
+      }
+    }, { rootMargin: "-35% 0px -55% 0px" });
+    spySections.forEach((s) => spy.observe(s));
+  }
+
   /* ── 2. 威胁事件流 ───────────────────────── */
   const term = document.getElementById("terminalBody");
   if (term) {
