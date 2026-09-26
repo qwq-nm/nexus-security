@@ -1311,7 +1311,7 @@
         <p class="pb__meta" style="margin-top:6px;text-align:center">近 14 天逐日对比</p>`;
     }
 
-    // 近 30 天活跃热力图
+    // 近 30 天活跃热力图(点击某天 → 跳转该日告警)
     const heat = $("#heatmap");
     heat.innerHTML = "";
     const maxA = Math.max(...state.trend.map((d) => d.alerts), 1);
@@ -1319,9 +1319,23 @@
       const cell = document.createElement("div");
       cell.className = "heat-cell";
       cell.style.background = `rgba(56, 225, 255, ${(0.07 + (d.alerts / maxA) * 0.75).toFixed(3)})`;
-      cell.title = `${d.day} · ${d.alerts} 条告警(拦截 ${d.blocked})`;
+      cell.title = `${d.day} · ${d.alerts} 条告警(拦截 ${d.blocked})· 点击查看`;
+      cell.dataset.day = d.day;
       heat.appendChild(cell);
     }
+    heat.onclick = (e) => {
+      const cell = e.target.closest(".heat-cell");
+      if (!cell) return;
+      const day = cell.dataset.day;
+      if (!day) return;
+      const [mm, dd] = day.split("-");
+      const year = new Date().getFullYear();
+      $("#dateFrom").value = `${year}-${mm}-${dd}`;
+      $("#dateTo").value = `${year}-${mm}-${dd}`;
+      alertPage = 1;
+      switchView("alerts");
+      toast(`已筛选 ${day} 当天的告警`, "info");
+    };
 
     computeGeo();
     requestAnimationFrame((t) => drawGeo(t));
