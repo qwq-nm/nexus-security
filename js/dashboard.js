@@ -1241,6 +1241,8 @@
     const badge = $("#bellBadge");
     badge.textContent = unread > 99 ? "99+" : String(unread);
     badge.hidden = unread === 0;
+    // 浏览器标签页标题未读提示
+    document.title = unread > 0 ? `(${unread}) 安全运营控制台 · NEXUS` : "安全运营控制台 · NEXUS";
   }
   function renderNotifList() {
     const list = $("#notifList");
