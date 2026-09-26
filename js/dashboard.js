@@ -38,6 +38,20 @@
       trend: N.read(N.K.trend(user.email), []),
       feed: N.read(N.K.feed(user.email), []),
     });
+    // 演示模式:趋势数据不足 30 天时本地补齐
+    if (state.trend.length < 30) {
+      let base = 320;
+      const days = 30;
+      const gen = [];
+      for (let i = 0; i < days; i++) {
+        const d = new Date(Date.now() - (days - 1 - i) * 86400000);
+        const label = `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        base = Math.max(140, Math.round(base + (Math.random() - 0.45) * 90));
+        gen.push({ day: label, alerts: base, blocked: Math.round(base * (0.9 + Math.random() * 0.08)) });
+      }
+      state.trend = gen;
+      save.trend();
+    }
   }
 
   /* ── 持久化(demo 模式写 localStorage;api 模式由服务端负责)─ */
@@ -109,6 +123,8 @@
     if (mode === "demo") save.feed();
     if (currentView === "overview") renderFeed();
     updateBell();
+    radarSpawn(f);
+    notifyDesktop(f);
   }
   function pushFeed(level, msg) {           // demo 模式本地写入
     if (mode === "api") return;
@@ -193,7 +209,11 @@
     try {
       const es = new EventSource("api/stream");
       es.onmessage = (ev) => {
-        try { pushFeedEntry(JSON.parse(ev.data)); } catch {}
+        try {
+          const d = JSON.parse(ev.data);
+          if (d.presence) { refreshPresence(); return; }
+          pushFeedEntry(d);
+        } catch {}
       };
     } catch { /* SSE 不可用时仅依赖 POST 响应 */ }
   } else {
@@ -224,14 +244,26 @@
     return { ctx, w, h };
   }
 
+  /* 趋势范围(7/14/30 日) */
+  let trendRange = 7;
+  const trendView = () => state.trend.slice(-trendRange);
+  $("#trendRange").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-days]");
+    if (!btn) return;
+    trendRange = parseInt(btn.dataset.days, 10);
+    $$("#trendRange .mini-btn").forEach((b) => b.classList.toggle("active", b === btn));
+    $("#typeRangeHint").textContent = `近 ${trendRange} 日`;
+    drawCharts();
+  });
+
   function drawTrend() {
     const { ctx, w, h } = setupCanvas($("#trendChart"));
-    const data = state.trend;
+    const data = trendView();
     if (!data.length) return;
     const padL = 34, padR = 12, padT = 14, padB = 26;
     const iw = w - padL - padR, ih = h - padT - padB;
     const maxV = Math.max(...data.map((d) => Math.max(d.alerts, d.blocked))) * 1.15;
-    const X = (i) => padL + (iw * i) / (data.length - 1);
+    const X = (i) => padL + (iw * i) / Math.max(data.length - 1, 1);
     const Y = (v) => padT + ih - (v / maxV) * ih;
 
     ctx.strokeStyle = "rgba(148,163,184,0.12)";
@@ -243,7 +275,12 @@
       ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
       ctx.fillText(Math.round(v), 6, y + 3.5);
     }
-    data.forEach((d, i) => ctx.fillText(d.day, X(i) - 11, h - 8));
+    const step = Math.ceil(data.length / 8);
+    data.forEach((d, i) => {
+      if (i % step !== 0 && i !== data.length - 1) return;
+      const x = Math.min(X(i), w - 34); // 防止最后一个标签溢出
+      ctx.fillText(d.day, x - 11, h - 8);
+    });
 
     const area = ctx.createLinearGradient(0, padT, 0, padT + ih);
     area.addColorStop(0, "rgba(56, 225, 255, 0.30)");
@@ -315,6 +352,88 @@
   }
 
   function drawCharts() { drawTrend(); drawType(); }
+
+  /* ── 攻击雷达 ─────────────────────────────── */
+  const radarBlips = [];
+  function radarSpawn(f) {
+    if (!["crit", "high", "med"].includes(f.level)) return;
+    radarBlips.push({
+      ang: Math.random() * Math.PI * 2,
+      rad: 0.25 + Math.random() * 0.7,
+      born: performance.now(),
+      level: f.level,
+    });
+    if (radarBlips.length > 24) radarBlips.shift();
+  }
+  function drawRadar(t) {
+    const cv = $("#radarChart");
+    if (!cv) return;
+    const { ctx, w, h } = setupCanvas(cv);
+    const cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 10;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const sweep = reduced ? -Math.PI / 2 : (t / 1400) % (Math.PI * 2);
+
+    ctx.clearRect(0, 0, w, h);
+    // 网格环 + 十字线
+    ctx.strokeStyle = "rgba(56, 225, 255, 0.16)";
+    ctx.lineWidth = 1;
+    for (const rr of [0.33, 0.66, 1]) {
+      ctx.beginPath(); ctx.arc(cx, cy, R * rr, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy);
+    ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R);
+    ctx.strokeStyle = "rgba(56, 225, 255, 0.1)";
+    ctx.stroke();
+
+    // 扫描扇形
+    if (!reduced) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, R, sweep - 0.7, sweep);
+      ctx.closePath();
+      const sg = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
+      sg.addColorStop(0, "rgba(56, 225, 255, 0.02)");
+      sg.addColorStop(1, "rgba(56, 225, 255, 0.22)");
+      ctx.fillStyle = sg;
+      ctx.fill();
+      ctx.restore();
+      // 扫描前沿
+      ctx.strokeStyle = "rgba(140, 240, 255, 0.8)";
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(sweep) * R, cy + Math.sin(sweep) * R);
+      ctx.stroke();
+    }
+
+    // 中心点
+    ctx.fillStyle = "#38e1ff";
+    ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI * 2); ctx.fill();
+
+    // 威胁光点(随时间衰减)
+    const nowT = performance.now();
+    const COLORS = { crit: "#f87171", high: "#fbbf24", med: "#38e1ff" };
+    for (let i = radarBlips.length - 1; i >= 0; i--) {
+      const b = radarBlips[i];
+      const age = (nowT - b.born) / 1000;
+      if (age > 10) { radarBlips.splice(i, 1); continue; }
+      const a = Math.max(0, 1 - age / 10) * 0.9;
+      const x = cx + Math.cos(b.ang) * R * b.rad;
+      const y = cy + Math.sin(b.ang) * R * b.rad;
+      ctx.fillStyle = COLORS[b.level] || "#38e1ff";
+      ctx.globalAlpha = a;
+      ctx.beginPath(); ctx.arc(x, y, b.level === "crit" ? 4 : 3, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = a * 0.25;
+      ctx.beginPath(); ctx.arc(x, y, (b.level === "crit" ? 4 : 3) + 4, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }
+  // 常驻循环:仅在总览视图时绘制,其余时间跳过(不断链)
+  requestAnimationFrame(function radarLoop(t) {
+    if (currentView === "overview") drawRadar(t);
+    requestAnimationFrame(radarLoop);
+  });
 
   let rsTimer;
   window.addEventListener("resize", () => {
@@ -544,13 +663,19 @@
       tr.children[1].textContent = a.type;
       tr.children[2].textContent = a.ip;
       tr.children[3].textContent = a.os;
+      tr.dataset.id = a.id;
+      tr.style.cursor = "pointer";
       tbody.appendChild(tr);
     }
     $("#assetEmpty").hidden = list.length > 0;
   }
   $("#assetRows").addEventListener("click", (e) => {
     const btn = e.target.closest("button[data-act]");
-    if (btn) handleAssetAction(btn.dataset.act, btn.dataset.id);
+    if (btn) { handleAssetAction(btn.dataset.act, btn.dataset.id); return; }
+    const tr = e.target.closest("tr[data-id]");
+    if (!tr) return;
+    const a = state.assets.find((x) => x.id === tr.dataset.id);
+    if (a) openAssetDrawer(a);
   });
   $("#assetSearch").addEventListener("input", debounce(renderAssets, 150));
   $("#assetStatus").addEventListener("change", renderAssets);
@@ -675,6 +800,43 @@
       riskBox.appendChild(row);
     }
 
+    // 攻击来源 Top 5(聚合外部来源)
+    const srcCounts = {};
+    for (const al of state.alerts) {
+      if (!al.src || al.src === "内生的" || al.src === "-") continue;
+      srcCounts[al.src] = (srcCounts[al.src] || 0) + 1;
+    }
+    const srcTop = Object.entries(srcCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const srcBox = $("#topSources");
+    srcBox.innerHTML = "";
+    if (!srcTop.length) { srcBox.innerHTML = '<p class="blocklist__empty">暂无外部来源告警</p>'; }
+    const maxSrc = srcTop.length ? srcTop[0][1] : 1;
+    for (const [ip, cnt] of srcTop) {
+      const row = document.createElement("div");
+      row.className = "src-row";
+      row.innerHTML = `<span class="td-mono"></span><div class="src-bar"><i style="width:${Math.round((cnt / maxSrc) * 100)}%"></i></div><b>${cnt}</b>`;
+      row.querySelector(".td-mono").textContent = ip;
+      srcBox.appendChild(row);
+    }
+
+    // IP 封禁名单(按来源聚合,一键解封)
+    const banned = state.alerts.filter((a) => a.status === "已封禁");
+    const bySrc = {};
+    for (const a of banned) {
+      (bySrc[a.src] = bySrc[a.src] || []).push(a);
+    }
+    const blBox = $("#blocklist");
+    blBox.innerHTML = "";
+    if (!banned.length) { blBox.innerHTML = '<p class="blocklist__empty">当前没有生效的封禁策略</p>'; }
+    for (const [src, list] of Object.entries(bySrc)) {
+      const row = document.createElement("div");
+      row.className = "blocklist__row";
+      row.innerHTML = `<span class="td-mono"></span><span class="dim">${list.length} 条相关告警</span>
+        <button class="mini-btn mini-btn--ok" data-src="${src}">全部解封</button>`;
+      row.querySelector(".td-mono").textContent = src;
+      blBox.appendChild(row);
+    }
+
     const reports = [
       ["第 39 周安全周报", "2026-09-21"], ["等保 2.0 三级自查报告", "2026-09-18"],
       ["9 月上半月威胁情报摘要", "2026-09-15"], ["Q3 渗透测试整改跟踪", "2026-09-08"],
@@ -734,6 +896,69 @@
     renderNotifList(); updateBell();
   });
 
+  /* ── 桌面通知(严重告警 + 页面在后台时)────── */
+  const DesktopNotify = {
+    supported: typeof Notification !== "undefined",
+    init() {
+      if (!this.supported || Notification.permission !== "default") return;
+      const btn = $("#notifyDesktop");
+      btn.hidden = false;
+      btn.addEventListener("click", async () => {
+        const perm = await Notification.requestPermission();
+        btn.hidden = perm !== "default";
+        if (perm === "granted") toast("桌面通知已开启,严重告警将在后台提醒你");
+      });
+    },
+    fire(f) {
+      if (!this.supported || Notification.permission !== "granted") return;
+      if (!document.hidden) return;
+      try { new Notification("NEXUS · 严重告警", { body: f.msg, tag: f.ts + "" }); } catch {}
+    },
+  };
+  DesktopNotify.init();
+  function notifyDesktop(f) { if (f.level === "crit") DesktopNotify.fire(f); }
+
+  /* ── 在线分析师(presence)────────────────── */
+  const DEMO_PRESENCE = [
+    { name: "演示管理员", company: "NEXUS 演示环境" },
+    { name: "林晚风", company: "SOC 值班" },
+    { name: "陈拓", company: "威胁情报组" },
+  ];
+  function renderPresence(data) {
+    $("#presenceCount").textContent = `${data.total} 人在线`;
+    $("#presenceTotal").textContent = `共 ${data.total} 人`;
+    const list = $("#presenceList");
+    list.innerHTML = "";
+    if (!data.online.length) { list.innerHTML = '<p class="notif__empty">当前没有其他分析师在线</p>'; return; }
+    for (const u of data.online) {
+      const row = document.createElement("div");
+      row.className = "notif__item";
+      row.innerHTML = `<span class="feed__dot feed__dot--ok"></span><span class="feed__msg"></span>`;
+      row.children[0].style.alignSelf = "center";
+      row.children[1].textContent = `${u.name} · ${u.company || "安全团队"}`;
+      list.appendChild(row);
+    }
+  }
+  async function refreshPresence() {
+    if (mode === "api") {
+      try { renderPresence(await API.call("GET", "api/presence")); } catch {}
+    } else {
+      renderPresence({ total: DEMO_PRESENCE.length, online: DEMO_PRESENCE });
+    }
+  }
+  $("#presenceChip").addEventListener("click", (e) => {
+    e.stopPropagation();
+    const panel = $("#presencePanel");
+    const open = panel.hidden;
+    panel.hidden = !open;
+    $("#presenceChip").setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) refreshPresence();
+  });
+  document.addEventListener("click", (e) => {
+    const panel = $("#presencePanel");
+    if (!panel.hidden && !e.target.closest(".presence-wrap")) panel.hidden = true;
+  });
+
   /* ── 告警详情抽屉 ─────────────────────────── */
   const drawer = $("#drawer");
   function openAlertDrawer(a) {
@@ -777,9 +1002,60 @@
   $("#drawerFoot").addEventListener("click", async (e) => {
     const btn = e.target.closest("button[data-act]");
     if (!btn) return;
-    await handleAlertAction(btn.dataset.act, btn.dataset.id);
+    const kind = btn.dataset.kind || "alert";
+    if (kind === "asset") await handleAssetAction(btn.dataset.act, btn.dataset.id);
+    else await handleAlertAction(btn.dataset.act, btn.dataset.id);
     closeDrawer();
   });
+
+  /* ── 资产详情抽屉 ─────────────────────────── */
+  function assetPorts(a) {
+    // 由资产 ID 确定性生成端口与服务清单(演示数据)
+    let seed = 0;
+    for (const ch of a.id) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+    const all = [[22, "SSH"], [80, "HTTP"], [443, "HTTPS"], [3306, "MySQL"], [6379, "Redis"], [8080, "HTTP-ALT"], [5432, "PostgreSQL"]];
+    const n = Math.max(1, a.exposure);
+    const out = [];
+    let s = seed;
+    while (out.length < Math.min(n, all.length)) {
+      s = (s * 1103515245 + 12345) >>> 0;
+      const pick = all[s % all.length];
+      if (!out.find((x) => x[0] === pick[0])) out.push(pick);
+    }
+    return out;
+  }
+  function openAssetDrawer(a) {
+    $("#drawerTitle").textContent = a.name;
+    const canRelease = a.status === "已隔离";
+    $("#drawerBody").innerHTML = `
+      <dl class="kv">
+        <dt>类型</dt><dd></dd>
+        <dt>IP 地址</dt><dd class="dim"></dd>
+        <dt>操作系统</dt><dd class="dim"></dd>
+        <dt>状态</dt><dd><span class="tag tag--${ASSET_TAG[a.status] || "idle"}">${a.status}</span></dd>
+        <dt>风险评分</dt><dd>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div class="riskbar"><i class="${riskColor(a.risk)}" style="width:${a.risk}%"></i></div>
+            <span class="td-mono">${a.risk}</span>
+          </div></dd>
+      </dl>
+      <p class="drawer__desc" style="margin-top:16px"><b style="color:var(--text)">暴露端口与服务</b></p>
+      <div class="blocklist" style="margin-top:10px">
+        ${assetPorts(a).map(([p, s]) => `<div class="blocklist__row"><span class="td-mono">${p}</span><span>${s}</span><span class="dim">对外开放</span></div>`).join("")}
+      </div>
+      <p class="drawer__desc" style="margin-top:16px"><b style="color:var(--text)">关联告警</b>(近 ${Math.min(5, state.alerts.filter((x) => x.asset === a.name).length)} 条)</p>
+      <div class="chain" style="margin-top:10px">
+        ${state.alerts.filter((x) => x.asset === a.name).slice(0, 5).map((x) =>
+          `<div class="chain__step"><b>${x.id} · ${x.type}</b><span class="tag tag--${STATUS_TAG[x.status] || "idle"}">${x.status}</span></div>`).join("") ||
+          '<div class="chain__step"><b>暂无关联告警</b>该资产近期运行平稳</div>'}
+      </div>`;
+    $("#drawerFoot").innerHTML = canRelease
+      ? `<button class="mini-btn mini-btn--ok" data-act="release" data-kind="asset" data-id="${a.id}">恢复上线</button>`
+      : `<button class="mini-btn mini-btn--danger" data-act="isolate" data-kind="asset" data-id="${a.id}">隔离</button>
+         <button class="mini-btn" data-act="rescan" data-kind="asset" data-id="${a.id}">发起扫描</button>`;
+    drawer.classList.add("open");
+    drawer.setAttribute("aria-hidden", "false");
+  }
 
   function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 
@@ -859,13 +1135,59 @@
       <dt>称呼</dt><dd></dd>
       <dt>公司/团队</dt><dd></dd>
       <dt>邮箱</dt><dd></dd>
+      <dt>注册时间</dt><dd class="dim">${user.createdAt ? new Date(user.createdAt).toLocaleDateString("zh-CN") : "—"}</dd>
       <dt>运行模式</dt><dd class="dim">${mode === "api" ? "API · 会话认证" : "演示 · 本地存储"}</dd>
     </dl>`;
     const dds = info.querySelectorAll("dd");
     dds[0].textContent = user.name;
     dds[1].textContent = user.company || "—";
     dds[2].textContent = user.email;
+    $("#profName").value = user.name;
+    $("#profCompany").value = user.company || "";
   }
+  $("#profileForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = $("#profName").value.trim();
+    const company = $("#profCompany").value.trim();
+    if (!name) return toast("称呼不能为空", "warn");
+    const btn = $("#profBtn");
+    btn.disabled = true; btn.textContent = "保存中…";
+    try {
+      if (mode === "api") {
+        const res = await API.call("PUT", "api/auth/profile", { name, company });
+        Object.assign(user, res.user);
+      } else {
+        const res = N.updateProfile(user.email, { name, company });
+        if (!res.ok) throw new Error(res.error);
+        Object.assign(user, res.user);
+      }
+      // 同步顶栏
+      $("#userName").textContent = user.name;
+      $("#userCompany").textContent = user.company || "个人空间";
+      $("#userAvatar").textContent = user.name.trim().charAt(0).toUpperCase() || "N";
+      renderSettings();
+      toast("资料已更新");
+    } catch (err) {
+      toast(err.message, "warn");
+    } finally {
+      btn.disabled = false; btn.textContent = "保存资料";
+    }
+  });
+  $("#backupBtn").addEventListener("click", () => {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      account: { name: user.name, email: user.email, company: user.company },
+      alerts: state.alerts, assets: state.assets,
+      playbooks: state.playbooks, trend: state.trend, feed: state.feed,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `nexus-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast("数据备份已下载(JSON)");
+  });
   $("#pwForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const errEl = $("#pwError");
@@ -891,6 +1213,67 @@
     }
   });
 
+  /* ── 周报生成 ─────────────────────────────── */
+  $("#genWeekly").addEventListener("click", () => {
+    const total = state.alerts.length;
+    const byStatus = {};
+    for (const a of state.alerts) byStatus[a.status] = (byStatus[a.status] || 0) + 1;
+    const byLevel = {};
+    for (const a of state.alerts) byLevel[a.level] = (byLevel[a.level] || 0) + 1;
+    const byType = {};
+    for (const a of state.alerts) byType[a.type] = (byType[a.type] || 0) + 1;
+    const topTypes = Object.entries(byType).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const srcCounts = {};
+    for (const a of state.alerts) {
+      if (a.src && a.src !== "内生的" && a.src !== "-") srcCounts[a.src] = (srcCounts[a.src] || 0) + 1;
+    }
+    const topSrc = Object.entries(srcCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const pending = state.alerts.filter((a) => a.status === "待处置" || a.status === "处理中");
+    const week = new Date();
+    const md = `# NEXUS 安全周报
+> 生成时间:${new Date().toLocaleString("zh-CN")} · 账号:${user.name}(${user.email})
+
+## 一、总体态势
+- 监控资产:${state.assets.length} 个
+- 安全事件总数:${total} 条(待处置 ${byStatus["待处置"] || 0} · 处理中 ${byStatus["处理中"] || 0} · 已解决 ${byStatus["已解决"] || 0} · 已封禁 ${byStatus["已封禁"] || 0} · 已隔离 ${byStatus["已隔离"] || 0})
+- 等级分布:严重 ${byLevel.crit || 0} · 高危 ${byLevel.high || 0} · 中危 ${byLevel.med || 0} · 低危 ${byLevel.low || 0}
+
+## 二、高发攻击类型 Top 5
+${topTypes.map(([t, c], i) => `${i + 1}. **${t}** — ${c} 条`).join("\n") || "无"}
+
+## 三、重点攻击来源 Top 5
+${topSrc.map(([s, c], i) => `${i + 1}. \`${s}\` — ${c} 次`).join("\n") || "无外部来源攻击"}
+
+## 四、待跟进事项
+${pending.map((a) => `- [ ] ${a.id}(${LEVEL_NAME[a.level]})${a.type} → ${a.asset}:${a.desc}`).join("\n") || "- 无待办事项,保持现状"}
+
+## 五、建议
+1. 优先处置上述待办清单中的严重与高危告警;
+2. 对高频攻击来源 IP 考虑在边界防火墙落实长期封禁;
+3. 针对高发攻击类型开展一次针对性渗透测试与规则加固。
+
+---
+*NEXUS 安全运营中心自动生成 · 数据截至生成时刻*
+`;
+    const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `nexus-weekly-${week.getMonth() + 1}-${week.getDate()}.md`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast("周报已生成并下载(Markdown 格式)");
+  });
+
+  /* ── 键盘快捷键(1-6 切换视图)─────────────── */
+  const VIEW_ORDER = ["overview", "alerts", "assets", "playbooks", "reports", "settings"];
+  document.addEventListener("keydown", (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const tag = document.activeElement?.tagName;
+    if (["INPUT", "TEXTAREA", "SELECT"].includes(tag)) return;
+    const idx = parseInt(e.key, 10);
+    if (idx >= 1 && idx <= VIEW_ORDER.length) switchView(VIEW_ORDER[idx - 1]);
+  });
+
   /* ── 退出登录 ─────────────────────────────── */
   $("#logoutBtn").addEventListener("click", async () => {
     const ok = await confirmModal({ title: "退出登录", body: "确定要退出安全运营控制台吗?", okText: "退出" });
@@ -908,5 +1291,6 @@
   renderPlaybooks();
   renderReports();
   updateBell();
+  refreshPresence();
   drawCharts();
 })();

@@ -114,7 +114,16 @@ function getUserById(id) {
   return db.prepare("SELECT * FROM users WHERE id = ?").get(id) || null;
 }
 function publicUser(u) {
-  return { name: u.name, company: u.company, email: u.email };
+  return { name: u.name, company: u.company, email: u.email, createdAt: u.created_at };
+}
+function updateProfile(userId, { name, company }) {
+  const u = getUserById(userId);
+  const v = {
+    name: (name ?? u.name).trim().slice(0, 40) || u.name,
+    company: (company ?? u.company).trim().slice(0, 60),
+  };
+  db.prepare("UPDATE users SET name = ?, company = ? WHERE id = ?").run(v.name, v.company, userId);
+  return getUserById(userId);
 }
 
 const SESSION_TTL = 7 * 24 * 3600 * 1000;
@@ -218,13 +227,15 @@ function seedUserData(userId) {
   );
   playbooks.forEach((p) => insPb.run(p[0], userId, p[1], p[2], p[3], p[4], p[5], p[6]));
 
-  const days = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+  const days = 30;
   let base = 320;
   const insTrend = db.prepare("INSERT INTO trend (user_id, idx, day, alerts, blocked) VALUES (?, ?, ?, ?, ?)");
-  days.forEach((d, i) => {
+  for (let i = 0; i < days; i++) {
+    const d = new Date(now - (days - 1 - i) * 86400000);
+    const label = `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     base = Math.max(140, Math.round(base + (rnd() - 0.45) * 90));
-    insTrend.run(userId, i, d, base, Math.round(base * (0.9 + rnd() * 0.08)));
-  });
+    insTrend.run(userId, i, label, base, Math.round(base * (0.9 + rnd() * 0.08)));
+  }
 
   const feedSeed = [
     [now - min(3), "ok", "处置剧本「IP 自动封禁」执行成功,封禁 45.83.207.11"],
@@ -311,10 +322,35 @@ function appendFeed(userId, level, msg) {
   return { ts, level, msg };
 }
 
+/** 迁移:老用户趋势数据补齐到 30 天 */
+function migrateTrends() {
+  const users = db.prepare("SELECT id FROM users").all();
+  const count = db.prepare("SELECT COUNT(*) AS c FROM trend WHERE user_id = ?");
+  for (const u of users) {
+    if (count.get(u.id).c < 30) {
+      db.prepare("DELETE FROM trend WHERE user_id = ?").run(u.id);
+      seedTrendOnly(u.id);
+    }
+  }
+}
+function seedTrendOnly(userId) {
+  const rnd = mulberry32(20260925 + userId);
+  const now = Date.now();
+  const days = 30;
+  let base = 320;
+  const insTrend = db.prepare("INSERT INTO trend (user_id, idx, day, alerts, blocked) VALUES (?, ?, ?, ?, ?)");
+  for (let i = 0; i < days; i++) {
+    const d = new Date(now - (days - 1 - i) * 86400000);
+    const label = `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    base = Math.max(140, Math.round(base + (rnd() - 0.45) * 90));
+    insTrend.run(userId, i, label, base, Math.round(base * (0.9 + rnd() * 0.08)));
+  }
+}
+
 module.exports = {
   db, hashPassword, verifyPassword,
-  createUser, getUserByEmail, getUserById, publicUser,
-  createSession, getUserByToken, deleteSession, purgeExpiredSessions,
+  createUser, getUserByEmail, getUserById, publicUser, updateProfile,
+  createSession, getUserByToken, deleteSession, purgeExpiredSessions, migrateTrends,
   seedUserData, getAlerts, getAlert, alertCount, insertAlert, simulateAlert, getAssets, getAsset,
   getPlaybooks, getPlaybook, getTrend, getFeed, appendFeed,
 };

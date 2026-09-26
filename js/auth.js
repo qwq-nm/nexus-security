@@ -207,6 +207,20 @@
     return { ok: true };
   }
 
+  /** 演示模式:编辑资料 */
+  function updateProfile(email, { name, company }) {
+    const users = read(K.users, []);
+    const u = users.find((x) => x.email === email);
+    if (!u) return { ok: false, error: "账号不存在。" };
+    if (name !== undefined) {
+      if (!String(name).trim()) return { ok: false, error: "称呼不能为空。" };
+      u.name = String(name).trim().slice(0, 40);
+    }
+    if (company !== undefined) u.company = String(company).trim().slice(0, 60);
+    write(K.users, users);
+    return { ok: true, user: { name: u.name, company: u.company, email: u.email, createdAt: u.createdAt } };
+  }
+
   /** 演示模式:重置演示账号口令(保证"一键体验"始终可用) */
   async function resetDemoPassword() {
     const users = read(K.users, []);
@@ -219,7 +233,7 @@
   window.NEXUS = {
     K, read, write, hashPassword,
     registerUser, loginUser, setSession, clearSession,
-    currentUser, requireAuth, ensureDemoUser, seedUserData, changePassword, resetDemoPassword,
+    currentUser, requireAuth, ensureDemoUser, seedUserData, changePassword, resetDemoPassword, updateProfile,
     DEMO,
   };
 })();

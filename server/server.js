@@ -26,6 +26,9 @@ app.use((req, res, next) => {
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("Permissions-Policy", "geolocation=(), camera=(), microphone=()");
+  res.setHeader("Content-Security-Policy",
+    "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; " +
+    "script-src 'self' 'unsafe-inline'; connect-src 'self'; font-src 'self'; base-uri 'self'; form-action 'self'");
   next();
 });
 
@@ -107,11 +110,18 @@ const AMBIENT = [
   ["ok", "合规基线快照完成,达标率 92.4%"],
 ];
 let ambientIdx = 0;
+function sseBroadcastPresence() {
+  for (const [uid] of sseClients) {
+    const u = store.getUserById(uid);
+    if (u) ssePush(uid, { presence: true });
+  }
+}
 setInterval(() => {
   const [level, msg] = AMBIENT[ambientIdx++ % AMBIENT.length];
   for (const userId of sseClients.keys()) {
     const event = store.appendFeed(userId, level, msg);
     ssePush(userId, event);
+    ssePush(userId, { presence: true }); // 顺带刷新在线状态,避免初始竞态
   }
 }, 12000);
 
@@ -352,6 +362,26 @@ app.put("/api/auth/password", requireUser, (req, res) => {
   res.json({ ok: true });
 });
 
+/* ── 在线分析师(基于 SSE 连接)────────────── */
+app.get("/api/presence", requireUser, (req, res) => {
+  const online = [];
+  for (const [uid, set] of sseClients) {
+    if (!set.size) continue;
+    const u = store.getUserById(uid);
+    if (u) online.push({ name: u.name, company: u.company });
+  }
+  res.json({ total: online.length, online });
+});
+
+/* ── 资料编辑 ─────────────────────────────── */
+app.put("/api/auth/profile", requireUser, (req, res) => {
+  const { name, company } = req.body || {};
+  if (name !== undefined && !String(name).trim()) return res.status(400).json({ error: "称呼不能为空。" });
+  const updated = store.updateProfile(req.user.id, { name, company });
+  sseBroadcastPresence();
+  res.json({ ok: true, user: store.publicUser(updated) });
+});
+
 /* ── 演示账号(启动时确保存在)────────────── */
 function ensureDemoUser() {
   const email = "demo@nexus.sec";
@@ -381,6 +411,7 @@ app.use((err, req, res, next) => {
 });
 
 store.purgeExpiredSessions();
+store.migrateTrends();
 ensureDemoUser();
 app.listen(PORT, () => {
   console.log(`NEXUS 后端已启动 → http://localhost:${PORT}`);

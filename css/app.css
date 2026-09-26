@@ -480,3 +480,48 @@ table.dt tbody tr:hover { background: rgba(56, 225, 255, 0.05); }
 @media (max-width: 860px) {
   .notif { width: min(340px, 88vw); }
 }
+
+/* ── 总览底部:事件流 + 攻击雷达 ─────────── */
+.grid-bottom { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-top: 20px; }
+#radarChart { width: 100%; height: 240px; }
+.range-tabs { display: flex; gap: 6px; }
+.range-tabs .mini-btn.active {
+  color: #02090c; background: var(--accent); border-color: var(--accent);
+}
+
+/* ── 在线分析师 ──────────────────────────── */
+.presence-wrap { position: relative; }
+.presence {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 38px; padding: 0 14px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-soft);
+  color: var(--text-dim); font-size: 12.5px; cursor: pointer; font-family: var(--font);
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.presence:hover { color: var(--text); border-color: rgba(56, 225, 255, 0.4); }
+.presence .badge__dot { width: 6px; height: 6px; }
+.presence-pop { width: 280px; }
+
+/* ── 封禁名单 ────────────────────────────── */
+.blocklist { display: grid; gap: 10px; }
+.blocklist__row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; border-radius: 12px;
+  background: rgba(248, 113, 113, 0.05); border: 1px solid rgba(248, 113, 113, 0.22);
+  font-size: 13.5px;
+}
+.blocklist__row .td-mono { flex: none; }
+.blocklist__row span.dim { color: var(--text-faint); font-size: 12px; }
+.blocklist__row .mini-btn { margin-left: auto; }
+.blocklist__empty { padding: 22px; text-align: center; color: var(--text-faint); font-size: 13px; }
+
+/* ── 攻击来源排行 ────────────────────────── */
+.src-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; font-size: 13.5px; }
+.src-row .td-mono { width: 150px; flex: none; }
+.src-row .src-bar { flex: 1; height: 6px; border-radius: 3px; background: rgba(148, 163, 184, 0.14); overflow: hidden; }
+.src-row .src-bar i { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, #f59e0b, #f87171); }
+.src-row b { font-variant-numeric: tabular-nums; font-size: 13px; }
+
+@media (max-width: 1080px) {
+  .grid-bottom { grid-template-columns: 1fr; }
+}
