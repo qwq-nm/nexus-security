@@ -51,8 +51,8 @@
       }
     : { alerts() {}, assets() {}, playbooks() {}, trend() {}, feed() {} };
 
-    // 演示模式:趋势数据不足 30 天时本地补齐(含四级分布)
-    if (mode === "demo" && state.trend.length < 30) {
+    // 演示模式:趋势数据不足 30 天或缺四级分布时本地补齐
+    if (mode === "demo" && (state.trend.length < 30 || typeof state.trend[0]?.crit !== "number")) {
       let base = 320;
       const days = 30;
       const gen = [];
