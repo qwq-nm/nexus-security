@@ -76,6 +76,7 @@
   const pad = (n) => String(n).padStart(2, "0");
   const fmtHM = (ts) => { const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
   const fmtFull = (ts) => { const d = new Date(ts); return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const fmtRel = (ts) => {
     const diff = Date.now() - ts;
     if (diff < 60 * 1000) return "刚刚发现";
@@ -325,6 +326,7 @@
         try {
           const d = JSON.parse(ev.data);
           if (d.presence) { refreshPresence(); return; }
+          if (d.reload) { refreshAlerts(); return; }
           pushFeedEntry(d);
         } catch {}
       };
@@ -1603,8 +1605,10 @@
         <dt>目标资产</dt><dd class="dim"></dd>
         <dt>首次发现</dt><dd class="dim">${fmtFull(a.ts)}<br /><span style="font-family:var(--mono);font-size:11px;color:var(--accent)">${fmtRel(a.ts)}</span></dd>
         <dt>处置人</dt><dd class="dim">${a.handledBy || "—"}</dd>
+        ${a.ruleId ? `<dt>命中规则</dt><dd><span class="tag tag--med">${esc(a.ruleId)}</span></dd>` : ""}
       </dl>
       <p class="drawer__desc"></p>
+      ${a.logExcerpt ? `<p class="drawer__desc" style="font-family:var(--mono);font-size:11.8px;background:rgba(4,6,12,0.9);color:#9ddcff;border-color:rgba(56,225,255,0.25)"><b style="color:var(--text)">原始日志</b><br />${esc(a.logExcerpt)}</p>` : ""}
       <div class="chain">
         <div class="chain__step"><b>检测</b>探针捕获异常行为并生成原始事件</div>
         <div class="chain__step"><b>情报比对</b>与 200+ 威胁情报源实时碰撞命中</div>
@@ -2053,6 +2057,64 @@ ${pending.map((a) => `- [ ] ${a.id}(${LEVEL_NAME[a.level]})${a.type} → ${a.ass
     } finally {
       btn.disabled = false; btn.textContent = "测试";
     }
+  });
+
+  async function refreshAlerts() {
+    if (mode !== "api") return;
+    try {
+      const res = await API.call("GET", "api/alerts");
+      state.alerts = res.alerts;
+      renderAlerts(); renderKpis();
+    } catch {}
+  }
+
+  /* ── 数据接入(采集器管理)─────────────────── */
+  async function loadAgents() {
+    if (mode === "demo") {
+      $("#agentList").innerHTML = '<p class="blocklist__empty">采集器仅真实后端模式支持(GitHub Pages 静态版为演示模式)。</p>';
+      return;
+    }
+    try {
+      const { agents } = await API.call("GET", "api/agents");
+      const box = $("#agentList");
+      box.innerHTML = "";
+      if (!agents.length) { box.innerHTML = '<p class="blocklist__empty">还没有采集器,点击上方「创建采集器」开始接入。</p>'; return; }
+      for (const a of agents) {
+        const row = document.createElement("div");
+        row.className = "blocklist__row";
+        row.style.borderColor = "var(--border-soft)";
+        row.style.background = "rgba(255,255,255,0.03)";
+        row.innerHTML = `<span></span><span class="dim">创建 ${fmtFull(a.createdAt)} · 最近心跳 ${a.lastSeen ? fmtHM(a.lastSeen) : "从未"}</span>
+          <button class="mini-btn mini-btn--danger" data-agent="${a.id}" style="margin-left:auto">吊销</button>`;
+        row.children[0].textContent = a.name;
+        box.appendChild(row);
+      }
+    } catch (e) { toast(e.message, "warn"); }
+  }
+  $("#agentCreate").addEventListener("click", async () => {
+    if (mode === "demo") return toast("采集器仅真实后端模式支持", "info");
+    const name = $("#agentName").value.trim() || "采集器";
+    try {
+      const res = await API.call("POST", "api/agents", { name });
+      $("#agentName").value = "";
+      $("#agentTokenBox").hidden = false;
+      $("#agentTokenOut").textContent = `Token: ${res.token}
+
+node agent/agent.js --url ${location.origin} --token ${res.token} --generator`;
+      loadAgents();
+      toast(`采集器「${name}」已创建`);
+    } catch (e) { toast(e.message, "warn"); }
+  });
+  $("#agentList").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-agent]");
+    if (!btn) return;
+    const ok = await confirmModal({ title: "吊销采集器", body: "吊销后该 Token 立即失效,对应 Agent 将无法上报。确认?", okText: "吊销", danger: true });
+    if (!ok) return;
+    try {
+      const res = await API.call("DELETE", `api/agents/${btn.dataset.agent}`);
+      loadAgents();
+      toast("采集器已吊销", "info");
+    } catch (err) { toast(err.message, "warn"); }
   });
 
   /* ── 登录历史 ─────────────────────────────── */

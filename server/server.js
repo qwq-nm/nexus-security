@@ -13,6 +13,7 @@ const express = require("express");
 const compression = require("compression");
 const path = require("node:path");
 const store = require("./db");
+const detect = require("./detect");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -495,6 +496,73 @@ app.post("/api/import", requireUser, (req, res) => {
   const feed = store.appendFeed(uid, "warn", `${req.user.name} 导入了数据备份(${d.alerts.length} 条告警)`);
   ssePush(uid, feed);
   res.json({ ok: true, feed, alerts: store.getAlerts(uid), assets: store.getAssets(uid), playbooks: store.getPlaybooks(uid) });
+});
+
+/* ── 采集器(Agent)鉴权与数据接入 ──────────── */
+function agentAuth(req, res, next) {
+  const m = String(req.headers.authorization || "").match(/^Bearer\s+(.+)$/i);
+  const agent = m && store.getAgentByToken(m[1].trim());
+  if (!agent) return res.status(401).json({ error: "无效的采集器 Token。" });
+  store.touchAgent(agent.id);
+  req.agentInfo = agent;
+  next();
+}
+app.post("/api/ingest/logs", agentAuth, (req, res) => {
+  const uid = req.agentInfo.user_id;
+  const arr = Array.isArray(req.body && req.body.logs) ? req.body.logs.slice(0, 500) : [];
+  if (!arr.length) return res.status(400).json({ error: "logs 数组为空。" });
+  const inserted = [];
+  for (const l of arr) {
+    if (!l || !l.message) continue;
+    inserted.push({
+      ts: Number(l.ts) > 0 ? Number(l.ts) : Date.now(),
+      host: String(l.host || "").slice(0, 80),
+      program: String(l.program || "").slice(0, 40),
+      message: String(l.message).slice(0, 500),
+    });
+  }
+  if (!inserted.length) return res.status(400).json({ error: "无有效日志。" });
+  for (const l of inserted) store.insertLog(uid, req.agentInfo.id, l);
+  store.trimLogs(uid, 20000);
+
+  // 检测引擎:真实日志 → 真实告警
+  const created = [];
+  for (const a of detect.detectLogs(uid, inserted)) {
+    const id = "DET-" + String(1000 + store.alertCount(uid));
+    const saved = store.insertAlert(uid, {
+      id, level: a.level, type: a.type, src: a.src, asset: a.asset,
+      desc: a.desc, status: "待处置", ts: Date.now(), handledBy: "",
+      ruleId: a.ruleId, logExcerpt: a.logExcerpt,
+    });
+    created.push(saved);
+    const feed = store.appendFeed(uid, a.level === "crit" ? "crit" : a.level === "high" ? "warn" : "med",
+      `检测引擎命中「${a.type}」→ ${id}(来源 ${a.src})`);
+    ssePush(uid, feed);
+    webhookPush(uid, feed);
+  }
+  ssePush(uid, { reload: true }); // 通知控制台刷新告警列表
+  res.json({ accepted: inserted.length, alerts: created.map((a) => a.id) });
+});
+
+app.get("/api/agents", requireUser, (req, res) => {
+  res.json({ agents: store.listAgents(req.user.id) });
+});
+app.post("/api/agents", requireUser, (req, res) => {
+  const name = String((req.body || {}).name || "").trim() || "采集器";
+  const { id, token } = store.createAgent(req.user.id, name);
+  const feed = store.appendFeed(req.user.id, "ok", `创建采集器「${name}」,请妥善保存 Token`);
+  ssePush(req.user.id, feed);
+  res.json({ ok: true, id, token }); // Token 仅此一次明文返回
+});
+app.delete("/api/agents/:id", requireUser, (req, res) => {
+  store.revokeAgent(req.user.id, Number(req.params.id));
+  res.json({ ok: true, agents: store.listAgents(req.user.id) });
+});
+app.get("/api/rules", requireUser, (req, res) => {
+  res.json({ rules: detect.listRules() });
+});
+app.get("/api/alerts", requireUser, (req, res) => {
+  res.json({ alerts: store.getAlerts(req.user.id) });
 });
 
 /* ── Webhook 告警推送 ─────────────────────── */

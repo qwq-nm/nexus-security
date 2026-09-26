@@ -85,9 +85,13 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_feed_user ON feed(user_id, id);
 `);
 
-// 老库迁移:告警备注列 + 用户 Webhook 列
+// 老库迁移:告警备注列 + 用户 Webhook 列 + 趋势四级分布
 try { db.exec("ALTER TABLE alerts ADD COLUMN note TEXT DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE users ADD COLUMN webhook TEXT DEFAULT ''"); } catch {}
+try {
+  db.exec("ALTER TABLE alerts ADD COLUMN rule_id TEXT DEFAULT ''");
+  db.exec("ALTER TABLE alerts ADD COLUMN log_excerpt TEXT DEFAULT ''");
+} catch {}
 try {
   db.exec("ALTER TABLE trend ADD COLUMN crit INTEGER DEFAULT 0");
   db.exec("ALTER TABLE trend ADD COLUMN high INTEGER DEFAULT 0");
@@ -103,6 +107,25 @@ db.exec(`
     ua       TEXT DEFAULT ''
   );
   CREATE INDEX IF NOT EXISTS idx_logins_user ON logins(user_id, id);
+  CREATE TABLE IF NOT EXISTS agents (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    name       TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL,
+    last_seen  INTEGER DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_agents_user ON agents(user_id);
+  CREATE TABLE IF NOT EXISTS logs (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    agent_id INTEGER,
+    ts      INTEGER NOT NULL,
+    host    TEXT DEFAULT '',
+    program TEXT DEFAULT '',
+    message TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_logs_user ON logs(user_id, id);
 `);
 
 /* ── 口令散列:scrypt + 每用户随机盐 ───────── */
@@ -278,22 +301,22 @@ function seedUserData(userId) {
 /* ── 数据读取(输出与前端演示模式同形)────── */
 function getAlerts(userId) {
   return db.prepare("SELECT * FROM alerts WHERE user_id = ? ORDER BY ts DESC").all(userId)
-    .map((r) => ({ id: r.id, level: r.level, type: r.type, src: r.src, asset: r.asset, desc: r.desc, status: r.status, ts: r.ts, handledBy: r.handled_by, note: r.note || "" }));
+    .map((r) => ({ id: r.id, level: r.level, type: r.type, src: r.src, asset: r.asset, desc: r.desc, status: r.status, ts: r.ts, handledBy: r.handled_by, note: r.note || "", ruleId: r.rule_id || "", logExcerpt: r.log_excerpt || "" }));
 }
 function getAlert(userId, id) {
   const r = db.prepare("SELECT * FROM alerts WHERE user_id = ? AND id = ?").get(userId, id);
   return r || null;
 }
 function alertJson(r) {
-  return { id: r.id, level: r.level, type: r.type, src: r.src, asset: r.asset, desc: r.desc, status: r.status, ts: r.ts, handledBy: r.handled_by, note: r.note || "" };
+  return { id: r.id, level: r.level, type: r.type, src: r.src, asset: r.asset, desc: r.desc, status: r.status, ts: r.ts, handledBy: r.handled_by, note: r.note || "", ruleId: r.rule_id || "", logExcerpt: r.log_excerpt || "" };
 }
 function alertCount(userId) {
   return db.prepare("SELECT COUNT(*) AS c FROM alerts WHERE user_id = ?").get(userId).c;
 }
 function insertAlert(userId, a) {
   db.prepare(
-    "INSERT INTO alerts (id, user_id, level, type, src, asset, desc, status, ts, handled_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-  ).run(a.id, userId, a.level, a.type, a.src, a.asset, a.desc, a.status, a.ts, a.handledBy || "");
+    "INSERT INTO alerts (id, user_id, level, type, src, asset, desc, status, ts, handled_by, note, rule_id, log_excerpt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).run(a.id, userId, a.level, a.type, a.src, a.asset, a.desc, a.status || "待处置", a.ts ?? Date.now(), a.handledBy || "", a.note || "", a.ruleId || "", a.logExcerpt || "");
   return getAlert(userId, a.id);
 }
 
@@ -384,6 +407,38 @@ function seedTrendOnly(userId) {
   }
 }
 
+/* ── 采集器(Agent)与原始日志 ──────────────── */
+function createAgent(userId, name) {
+  const token = crypto.randomBytes(24).toString("hex");
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+  const info = db.prepare("INSERT INTO agents (user_id, name, token_hash, created_at) VALUES (?, ?, ?, ?)")
+    .run(userId, String(name).trim().slice(0, 40) || "采集器", tokenHash, Date.now());
+  return { id: Number(info.lastInsertRowid), token };
+}
+function listAgents(userId) {
+  return db.prepare("SELECT id, name, created_at, last_seen FROM agents WHERE user_id = ? ORDER BY id").all(userId)
+    .map((r) => ({ id: r.id, name: r.name, createdAt: r.created_at, lastSeen: r.last_seen }));
+}
+function touchAgent(agentId) {
+  db.prepare("UPDATE agents SET last_seen = ? WHERE id = ?").run(Date.now(), agentId);
+}
+function revokeAgent(userId, id) {
+  db.prepare("DELETE FROM agents WHERE user_id = ? AND id = ?").run(userId, id);
+}
+function getAgentByToken(token) {
+  if (!token) return null;
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+  return db.prepare("SELECT * FROM agents WHERE token_hash = ?").get(tokenHash) || null;
+}
+function insertLog(userId, agentId, l) {
+  const info = db.prepare("INSERT INTO logs (user_id, agent_id, ts, host, program, message) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(userId, agentId, l.ts, l.host, l.program, l.message);
+  return Number(info.lastInsertRowid);
+}
+function trimLogs(userId, keep = 20000) {
+  db.prepare("DELETE FROM logs WHERE user_id = ? AND id <= (SELECT MAX(id) - ? FROM logs WHERE user_id = ?)").run(userId, keep, userId);
+}
+
 /* ── 登录历史 ─────────────────────────────── */
 function recordLogin(userId, ip, ua) {
   db.prepare("INSERT INTO logins (user_id, ts, ip, ua) VALUES (?, ?, ?, ?)").run(userId, Date.now(), ip || "-", String(ua || "").slice(0, 180));
@@ -431,5 +486,6 @@ module.exports = {
   createSession, getUserByToken, deleteSession, purgeExpiredSessions, migrateTrends,
   seedUserData, getAlerts, getAlert, alertJson, alertCount, insertAlert, simulateAlert, getAssets, getAsset,
   getPlaybooks, getPlaybook, insertPlaybook, deletePlaybook, getTrend, getFeed, appendFeed,
+  createAgent, listAgents, touchAgent, revokeAgent, getAgentByToken, insertLog, trimLogs,
   recordLogin, getLogins, replaceUserData,
 };
