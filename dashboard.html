@@ -14,7 +14,7 @@
   <meta property="og:site_name" content="NEXUS Security" />
   <meta name="twitter:card" content="summary" />
 <link rel="stylesheet" href="css/style.css?v=3" />
-  <link rel="stylesheet" href="css/app.css?v=8" />
+  <link rel="stylesheet" href="css/app.css?v=9" />
 </head>
 <body class="app" data-page="dashboard">
 
@@ -79,6 +79,7 @@
           <p class="topbar__sub" id="viewSub">你的网络此刻正处于监控之下</p>
         </div>
         <div class="topbar__right">
+          <button class="mini-btn" id="themeBtn" title="切换深浅主题">☀</button>
           <span class="tag tag--idle" id="connState" title="实时通道状态">◌ 连接中</span>
           <span class="tag tag--ok"><span class="badge__dot"></span> 全部系统在线</span>
           <div class="presence-wrap">
@@ -472,7 +473,7 @@
 
   <script src="js/backend.js?v=3"></script>
   <script src="js/auth.js?v=4"></script>
-  <script src="js/dashboard.js?v=20"></script>
+  <script src="js/dashboard.js?v=22"></script>
 <script>if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(function(){});</script>
 </body>
 </html>

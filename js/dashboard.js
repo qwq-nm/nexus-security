@@ -143,6 +143,21 @@
   $("#userCompany").textContent = user.company || "个人空间";
   $("#userAvatar").textContent = user.name.trim().charAt(0).toUpperCase() || "N";
 
+  /* ── 深浅主题 ─────────────────────────────── */
+  const isLight = () => document.documentElement.classList.contains("light");
+  function applyTheme(light) {
+    document.documentElement.classList.toggle("light", light);
+    localStorage.setItem("nexus_theme", light ? "light" : "dark");
+    $("#themeBtn").textContent = light ? "🌙" : "☀";
+    drawCharts();
+    drawGauge();
+  }
+  $("#themeBtn").addEventListener("click", () => applyTheme(!isLight()));
+  if (localStorage.getItem("nexus_theme") === "light") {
+    document.documentElement.classList.add("light");
+    $("#themeBtn").textContent = "🌙";
+  }
+
   /* ── 视图切换 ─────────────────────────────── */
   const VIEW_META = {
     overview: ["总览", "你的网络此刻正处于监控之下"],
@@ -232,12 +247,12 @@
     ctx.strokeStyle = grad;
     ctx.beginPath(); ctx.arc(cx, cy, r, Math.PI, end); ctx.stroke();
     // 分数文字
-    ctx.fillStyle = "#eef1f7";
+    ctx.fillStyle = document.documentElement.classList.contains("light") ? "#101828" : "#eef1f7";
     ctx.font = "700 20px " + getComputedStyle(document.body).fontFamily;
     ctx.textAlign = "center";
     ctx.fillText(String(score), cx, cy - 8);
     ctx.font = "9px " + getComputedStyle(document.body).fontFamily;
-    ctx.fillStyle = "rgba(153,162,178,0.8)";
+    ctx.fillStyle = "rgba(120, 130, 148, 0.9)";
     ctx.fillText("HEALTH", cx, cy + 2);
     ctx.textAlign = "left";
   }
@@ -406,12 +421,12 @@
       ctx.fill();
       ang += slice;
     }
-    ctx.fillStyle = "#eef1f7";
+    ctx.fillStyle = document.documentElement.classList.contains("light") ? "#101828" : "#eef1f7";
     ctx.font = "700 22px " + getComputedStyle(document.body).fontFamily;
     ctx.textAlign = "center";
     ctx.fillText(String(total), cx, cy - 2);
     ctx.font = "11px " + getComputedStyle(document.body).fontFamily;
-    ctx.fillStyle = "rgba(153,162,178,0.7)";
+    ctx.fillStyle = "rgba(120, 130, 148, 0.85)";
     ctx.fillText("安全事件", cx, cy + 16);
     ctx.textAlign = "left";
 

@@ -630,3 +630,34 @@ th.sortable:hover { color: var(--accent); }
 
 /* ── 团队卡片 ────────────────────────────── */
 .team-card__top { display: flex; align-items: center; gap: 12px; }
+
+/* ── 亮色主题(控制台)────────────────────── */
+html.light body.app { background: #eef1f6; }
+html.light {
+  --bg: #eef1f6; --bg-soft: #e4e9f2;
+  --surface: rgba(15, 23, 42, 0.035);
+  --surface-strong: rgba(15, 23, 42, 0.07);
+  --line: rgba(15, 23, 42, 0.14);
+  --line-soft: rgba(15, 23, 42, 0.08);
+  --text: #101828; --text-dim: #475467; --text-faint: #7a8699;
+  --accent-dim: rgba(37, 99, 235, 0.12);
+}
+html.light body.app .app-shell { background: transparent; }
+html.light .sidebar { background: #ffffff; }
+html.light .topbar { background: rgba(255, 255, 255, 0.88); }
+html.light .card { background: #ffffff; border-color: var(--line-soft); box-shadow: 0 1px 3px rgba(16, 24, 40, 0.05); }
+html.light .card.kpi::after { background: radial-gradient(circle, rgba(37, 99, 235, 0.07), transparent 70%); }
+html.light table.dt th { background: #f5f7fb; color: #667085; }
+html.light table.dt td { border-bottom-color: rgba(15, 23, 42, 0.06); }
+html.light table.dt tbody tr:hover { background: rgba(37, 99, 235, 0.045); }
+html.light .modal, html.light .notif, html.light .drawer__panel, html.light .toast, html.light .palette__panel { background: #ffffff; }
+html.light .toast { border-color: rgba(37, 99, 235, 0.35); }
+html.light .userchip, html.light .bell, html.light .presence { background: #ffffff; }
+html.light .terminal, html.light .terminal__body { background: #0d1322; } /* 终端保持暗色 */
+html.light .sidebar__item.active { color: #1d4ed8; background: linear-gradient(90deg, rgba(37, 99, 235, 0.14), rgba(37, 99, 235, 0.04)); }
+html.light .badge__dot, html.light .footer__status .badge__dot { box-shadow: none; }
+html.light .heat-cell { box-shadow: inset 0 0 0 1px rgba(16, 24, 40, 0.05); }
+html.light .blocklist__row { background: rgba(15, 23, 42, 0.03); }
+html.light .plan--hot { background: linear-gradient(180deg, rgba(37, 99, 235, 0.08), rgba(37, 99, 235, 0.02)), #fff; }
+html.light .comp__bar { background: rgba(15, 23, 42, 0.1); }
+html.light .riskbar { background: rgba(15, 23, 42, 0.1); }
