@@ -617,3 +617,9 @@ th.sortable:hover { color: var(--accent); }
   #connState, .topbar .tag--ok, .presence-wrap { display: none !important; }
   .topbar__right { gap: 8px; }
 }
+
+/* ── 30 天热力图 ─────────────────────────── */
+.heatmap { display: grid; grid-template-columns: repeat(15, 1fr); gap: 6px; }
+.heat-cell { height: 34px; border-radius: 6px; cursor: default; transition: transform 0.15s ease; }
+.heat-cell:hover { transform: scale(1.12); }
+@media (max-width: 700px) { .heatmap { grid-template-columns: repeat(10, 1fr); } }

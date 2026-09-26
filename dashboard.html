@@ -305,6 +305,13 @@
             </div>
             <div class="card" style="grid-column: 1 / -1;">
               <div class="card__head">
+                <p class="card__title">近 30 天活跃热力图</p>
+                <p class="card__hint">颜色越亮,当日告警越多</p>
+              </div>
+              <div class="heatmap" id="heatmap"></div>
+            </div>
+            <div class="card" style="grid-column: 1 / -1;">
+              <div class="card__head">
                 <p class="card__title">全球威胁来源分布</p>
                 <p class="card__hint">按来源 IP 归属区域聚合 · 弧线为攻击路径</p>
               </div>
@@ -373,6 +380,28 @@
             </div>
             <div class="card">
               <div class="card__head">
+                <p class="card__title">告警订阅规则</p>
+                <p class="card__hint">命中规则时才弹桌面通知</p>
+              </div>
+              <div class="rules" id="rulesList"></div>
+              <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+                <select id="ruleType" style="flex:1;min-width:130px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.05);border:1px solid var(--border-soft);color:var(--text);font-family:var(--font)">
+                  <option value="">全部类型</option>
+                  <option>暴力破解</option><option>SQL 注入</option><option>恶意样本</option>
+                  <option>异常外联</option><option>端口扫描</option><option>挖矿行为</option>
+                  <option>勒索软件</option><option>横向移动</option><option>钓鱼邮件</option>
+                </select>
+                <select id="ruleLevel" style="width:110px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.05);border:1px solid var(--border-soft);color:var(--text);font-family:var(--font)">
+                  <option value="med">≥ 中危</option>
+                  <option value="high">≥ 高危</option>
+                  <option value="crit">仅严重</option>
+                </select>
+                <button class="mini-btn" id="ruleAdd">＋ 添加规则</button>
+              </div>
+              <p class="settings-note" style="margin-top:12px">不添加规则时,按上方「通知偏好」的等级阈值触发。</p>
+            </div>
+            <div class="card">
+              <div class="card__head">
                 <p class="card__title">通知偏好</p>
                 <p class="card__hint">桌面通知触发等级</p>
               </div>
@@ -429,7 +458,7 @@
 
   <script src="js/backend.js?v=3"></script>
   <script src="js/auth.js?v=4"></script>
-  <script src="js/dashboard.js?v=17"></script>
+  <script src="js/dashboard.js?v=19"></script>
 <script>if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(function(){});</script>
 </body>
 </html>

@@ -126,6 +126,8 @@
     updateBell();
     radarSpawn(f);
     notifyDesktop(f);
+    const cs = $("#connState");
+    if (cs) cs.title = "最后事件 " + fmtHM(f.ts);
   }
   function pushFeed(level, msg) {           // demo 模式本地写入
     if (mode === "api") return;
@@ -1243,6 +1245,18 @@
       list.appendChild(a);
     }
 
+    // 近 30 天活跃热力图
+    const heat = $("#heatmap");
+    heat.innerHTML = "";
+    const maxA = Math.max(...state.trend.map((d) => d.alerts), 1);
+    for (const d of state.trend) {
+      const cell = document.createElement("div");
+      cell.className = "heat-cell";
+      cell.style.background = `rgba(56, 225, 255, ${(0.07 + (d.alerts / maxA) * 0.75).toFixed(3)})`;
+      cell.title = `${d.day} · ${d.alerts} 条告警(拦截 ${d.blocked})`;
+      heat.appendChild(cell);
+    }
+
     computeGeo();
     requestAnimationFrame((t) => drawGeo(t));
   }
@@ -1402,6 +1416,7 @@
     $("#drawerNote").value = a.note || "";
     $("#drawerFoot").innerHTML =
       (nav.length ? nav.join("") : "") +
+      `<button class="mini-btn" data-copy="${a.id}" title="复制告警 JSON">📋 JSON</button>` +
       (ops.length
         ? ops.map(([label, act, cls]) => `<button class="mini-btn mini-btn--${cls || "default"}" data-act="${act}" data-id="${a.id}">${label}</button>`).join("")
         : '<span class="td-dim">该告警已完结,无可用操作。</span>');
@@ -1440,6 +1455,20 @@
     }
   });
   $("#drawerFoot").addEventListener("click", async (e) => {
+    const copyBtn = e.target.closest("button[data-copy]");
+    if (copyBtn) {
+      const a = state.alerts.find((x) => x.id === copyBtn.dataset.copy);
+      if (!a) return;
+      const json = JSON.stringify(a, null, 2);
+      try { await navigator.clipboard.writeText(json); toast("告警 JSON 已复制到剪贴板"); }
+      catch {
+        const ta = document.createElement("textarea");
+        ta.value = json; document.body.appendChild(ta); ta.select();
+        document.execCommand("copy"); ta.remove();
+        toast("告警 JSON 已复制");
+      }
+      return;
+    }
     const navBtn = e.target.closest("button[data-nav]");
     if (navBtn) {
       const idx = lastAlertIds.indexOf($("#drawerTitle").textContent);
@@ -1882,8 +1911,63 @@ ${pending.map((a) => `- [ ] ${a.id}(${LEVEL_NAME[a.level]})${a.type} → ${a.ass
     toast("通知偏好已保存");
   });
   function notifyDesktop(f) {
+    // 订阅规则优先:有规则时,仅命中(类型关键字 + 等级阈值)才通知
+    const rules = N.read(RULES_KEY, []);
+    if (rules.length) {
+      const hit = rules.some((r) => {
+        const lvOk = (NOTIFY_RANK[f.level] || 0) >= (NOTIFY_RANK[r.minLevel] || 0);
+        const typeOk = !r.type || f.msg.includes(r.type);
+        return lvOk && typeOk;
+      });
+      if (!hit) return;
+      DesktopNotify.fire(f);
+      return;
+    }
     if ((NOTIFY_RANK[f.level] || 0) >= (NOTIFY_RANK[notifyLevel] || 0)) DesktopNotify.fire(f);
   }
+
+  /* ── 告警订阅规则 ─────────────────────────── */
+  const RULES_KEY = "nexus_rules_" + (user.email || "demo");
+  const RULE_LEVEL_NAME = { med: "≥ 中危", high: "≥ 高危", crit: "仅严重" };
+  function renderRules() {
+    const rules = N.read(RULES_KEY, []);
+    const box = $("#rulesList");
+    box.innerHTML = "";
+    if (!rules.length) { box.innerHTML = '<p class="blocklist__empty" style="padding:14px;text-align:center;color:var(--text-faint);font-size:13px">暂无规则 · 通知按等级阈值触发</p>'; return; }
+    for (const r of rules) {
+      const row = document.createElement("div");
+      row.className = "blocklist__row";
+      row.style.borderColor = "var(--border-soft)";
+      row.style.background = "rgba(56, 225, 255, 0.04)";
+      row.innerHTML = `<span></span><span class="dim">${RULE_LEVEL_NAME[r.minLevel] || ""}</span><button class="mini-btn mini-btn--danger" data-rule="${r.id}">移除</button>`;
+      row.children[0].textContent = r.type || "全部类型";
+      box.appendChild(row);
+    }
+  }
+  $("#ruleAdd").addEventListener("click", () => {
+    const type = $("#ruleType").value;
+    const minLevel = $("#ruleLevel").value;
+    const rules = N.read(RULES_KEY, []);
+    if (rules.some((r) => r.type === type && r.minLevel === minLevel)) return toast("该规则已存在", "info");
+    rules.push({ id: "R" + Date.now().toString(36), type, minLevel });
+    N.write(RULES_KEY, rules);
+    renderRules();
+    toast("订阅规则已添加");
+  });
+  $("#rulesList").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-rule]");
+    if (!btn) return;
+    N.write(RULES_KEY, N.read(RULES_KEY, []).filter((r) => r.id !== btn.dataset.rule));
+    renderRules();
+    toast("规则已移除", "info");
+  });
+
+  /* ── 跨标签页登出同步(演示模式)────────────── */
+  window.addEventListener("storage", (e) => {
+    if (e.key === "nexus_session" && !e.newValue && mode === "demo") {
+      location.replace("login.html");
+    }
+  });
 
   /* ── 退出登录 ─────────────────────────────── */
   $("#logoutBtn").addEventListener("click", async () => {
