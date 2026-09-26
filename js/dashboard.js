@@ -693,6 +693,21 @@
     }
   }));
 
+  /* ── 告警分页 ─────────────────────────────── */
+  const PAGE_SIZE = 12;
+  let alertPage = 1;
+  function updatePager(totalFiltered) {
+    const pages = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
+    if (alertPage > pages) alertPage = pages;
+    $("#pgInfo").textContent = `${alertPage} / ${pages}`;
+    $("#pgPrev").disabled = alertPage <= 1;
+    $("#pgNext").disabled = alertPage >= pages;
+    $("#alertPager").style.display = pages > 1 ? "flex" : "none";
+    return pages;
+  }
+  $("#pgPrev").addEventListener("click", () => { alertPage--; renderAlerts(); });
+  $("#pgNext").addEventListener("click", () => { alertPage++; renderAlerts(); });
+
   function renderAlerts() {
     const kw = ($("#alertSearch").value || "").trim().toLowerCase();
     const lv = $("#alertLevel").value;
@@ -711,9 +726,17 @@
       return (x.ts - y.ts) * alertSort.dir;
     });
 
+    const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+    if (alertPage > pages) alertPage = pages;
+    $("#pgInfo").textContent = `${alertPage} / ${pages}`;
+    $("#pgPrev").disabled = alertPage <= 1;
+    $("#pgNext").disabled = alertPage >= pages;
+    $("#alertPager").style.display = pages > 1 ? "flex" : "none";
+    const pageList = list.slice((alertPage - 1) * PAGE_SIZE, alertPage * PAGE_SIZE);
+
     const tbody = $("#alertRows");
     tbody.innerHTML = "";
-    for (const a of list) {
+    for (const a of pageList) {
       const tr = document.createElement("tr");
       const ops = alertActions(a)
         .map(([label, act, cls]) => `<button class="mini-btn mini-btn--${cls || "default"}" data-act="${act}" data-id="${a.id}">${label}</button>`)
@@ -748,10 +771,10 @@
     const a = state.alerts.find((x) => x.id === tr.dataset.id);
     if (a) openAlertDrawer(a);
   });
-  const debouncedAlerts = debounce(renderAlerts, 150);
+  const debouncedAlerts = debounce(() => { alertPage = 1; renderAlerts(); }, 150);
   $("#alertSearch").addEventListener("input", debouncedAlerts);
-  ["alertLevel", "alertStatus"].forEach((id) => $("#" + id).addEventListener("change", renderAlerts));
-  ["dateFrom", "dateTo"].forEach((id) => $("#" + id).addEventListener("change", renderAlerts));
+  ["alertLevel", "alertStatus", "dateFrom", "dateTo"].forEach((id) =>
+    $("#" + id).addEventListener("change", () => { alertPage = 1; renderAlerts(); }));
 
   /* ── 资产管理 ─────────────────────────────── */
   function riskColor(v) { return v >= 60 ? "risk--high" : v >= 35 ? "risk--mid" : "risk--low"; }
@@ -1337,6 +1360,10 @@
         <div class="chain__step"><b>自动分级</b>引擎评定等级为「${LEVEL_NAME[a.level]}」并聚合降噪</div>
         <div class="chain__step"><b>当前状态</b>${a.status} · 等待${a.status === "待处置" ? "人工处置" : "持续观察"}</div>
       </div>
+      ${(() => {
+        const similar = state.alerts.filter((x) => x.id !== a.id && x.type === a.type && !["已解决", "已忽略"].includes(x.status)).length;
+        return similar ? `<p class="drawer__desc" style="margin-top:16px">同类「${a.type}」未完结告警还有 <b style="color:var(--accent)">${similar}</b> 条,可在告警中心按类型筛选查看。</p>` : "";
+      })()}
       <div class="field" style="margin-top:20px">
         <label for="drawerNote">分析师备注</label>
         <textarea id="drawerNote" rows="3" maxlength="500" placeholder="记录研判结论、关联事件或后续计划…"
@@ -1718,6 +1745,7 @@ ${pending.map((a) => `- [ ] ${a.id}(${LEVEL_NAME[a.level]})${a.type} → ${a.ass
           <h3>键盘快捷键</h3>
           <div class="chain" style="margin-top:16px">
             <div class="chain__step"><b>1 – 6</b>切换视图:总览 / 告警 / 资产 / 剧本 / 报表 / 设置</div>
+            <div class="chain__step"><b>Ctrl / Cmd + K</b>打开命令面板:快速跳转、搜索告警、执行操作</div>
             <div class="chain__step"><b>?</b>打开本帮助面板</div>
             <div class="chain__step"><b>Esc</b>关闭抽屉与弹窗</div>
           </div>
@@ -1727,6 +1755,82 @@ ${pending.map((a) => `- [ ] ${a.id}(${LEVEL_NAME[a.level]})${a.type} → ${a.ass
     const mask = root.firstElementChild;
     const done = () => { root.innerHTML = ""; };
     mask.addEventListener("click", (e) => { if (e.target === mask || e.target.dataset.act === "close") done(); });
+  }
+
+  /* ── 命令面板(Ctrl / Cmd + K)─────────────── */
+  const palette = $("#palette");
+  let palItems = [], palIdx = 0;
+  function palRender() {
+    const list = $("#paletteList");
+    list.innerHTML = "";
+    palItems.forEach((c, i) => {
+      const row = document.createElement("div");
+      row.className = "palette__item" + (i === palIdx ? " active" : "");
+      row.innerHTML = `<span class="palette__icon">${c.icon}</span><span></span>`;
+      row.children[1].textContent = c.label;
+      row.addEventListener("click", () => { closePalette(); c.act(); });
+      list.appendChild(row);
+    });
+    list.querySelector(".palette__item.active")?.scrollIntoView({ block: "nearest" });
+  }
+  function buildPalette(q) {
+    const cmds = [
+      { icon: "▦", label: "前往:总览", act: () => switchView("overview") },
+      { icon: "⚠", label: "前往:告警中心", act: () => switchView("alerts") },
+      { icon: "▣", label: "前往:资产管理", act: () => switchView("assets") },
+      { icon: "🛡", label: "前往:处置剧本", act: () => switchView("playbooks") },
+      { icon: "📈", label: "前往:报表中心", act: () => switchView("reports") },
+      { icon: "⚙", label: "前往:账号设置", act: () => switchView("settings") },
+      { icon: "💉", label: "注入测试告警", act: () => { switchView("alerts"); setTimeout(() => $("#simulateBtn").click(), 150); } },
+      { icon: "↓", label: "导出告警 CSV", act: () => { switchView("alerts"); setTimeout(() => $("#exportAlerts").click(), 150); } },
+      { icon: "＋", label: "新建处置剧本", act: () => { switchView("playbooks"); setTimeout(() => $("#newPbBtn").click(), 150); } },
+      { icon: "🖨", label: "打印 / 导出 PDF", act: () => window.print() },
+    ];
+    const hits = q
+      ? state.alerts
+          .filter((a) => [a.id, a.type, a.src, a.asset].join(" ").toLowerCase().includes(q.toLowerCase()))
+          .slice(0, 6)
+          .map((a) => ({
+            icon: "◈",
+            label: `${a.id} · ${a.type} → ${a.asset}(${a.status})`,
+            act: () => { switchView("alerts"); setTimeout(() => openAlertDrawer(a), 150); },
+          }))
+      : [];
+    palItems = [...hits, ...cmds.filter((c) => !q || c.label.toLowerCase().includes(q.toLowerCase()))];
+    palIdx = 0;
+    palRender();
+  }
+  function openPalette() { palette.hidden = false; $("#paletteInput").value = ""; buildPalette(""); $("#paletteInput").focus(); }
+  function closePalette() { palette.hidden = true; }
+  $("#paletteMask").addEventListener("click", closePalette);
+  $("#paletteInput").addEventListener("input", (e) => buildPalette(e.target.value.trim()));
+  $("#paletteInput").addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { palIdx = Math.min(palIdx + 1, palItems.length - 1); palRender(); e.preventDefault(); }
+    else if (e.key === "ArrowUp") { palIdx = Math.max(palIdx - 1, 0); palRender(); e.preventDefault(); }
+    else if (e.key === "Enter") { closePalette(); palItems[palIdx]?.act(); }
+    else if (e.key === "Escape") closePalette();
+  });
+  document.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      palette.hidden ? openPalette() : closePalette();
+    }
+  });
+
+  /* ── 打印 / 导出 PDF ──────────────────────── */
+  $("#printReport").addEventListener("click", () => { switchView("reports"); setTimeout(() => window.print(), 150); });
+
+  /* ── 通知级别偏好 ─────────────────────────── */
+  const NOTIFY_RANK = { low: 0, med: 1, high: 2, crit: 3 };
+  let notifyLevel = localStorage.getItem("nexus_notify_level") || "crit";
+  $("#notifyLevel").value = notifyLevel;
+  $("#notifyLevel").addEventListener("change", (e) => {
+    notifyLevel = e.target.value;
+    localStorage.setItem("nexus_notify_level", notifyLevel);
+    toast("通知偏好已保存");
+  });
+  function notifyDesktop(f) {
+    if ((NOTIFY_RANK[f.level] || 0) >= (NOTIFY_RANK[notifyLevel] || 0)) DesktopNotify.fire(f);
   }
 
   /* ── 退出登录 ─────────────────────────────── */

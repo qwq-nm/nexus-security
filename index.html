@@ -287,7 +287,10 @@
           <h2 class="section__title">简单透明的定价</h2>
           <p class="section__sub">从个人项目到大型企业,总有适合你的防护等级。随时升级,随时取消。</p>
         </div>
-        <span class="section__num">04</span>
+        <div class="billing-toggle">
+          <button class="mini-btn active" data-billing="monthly">月付</button>
+          <button class="mini-btn" data-billing="yearly">年付 · 省 20%</button>
+        </div>
       </header>
       <div class="plans">
         <article class="plan reveal">
@@ -305,7 +308,8 @@
         <article class="plan plan--hot reveal">
           <p class="plan__tag">最受欢迎</p>
           <h3 class="plan__name">专业版</h3>
-          <p class="plan__price"><strong>¥399</strong><span>/ 月</span></p>
+          <p class="plan__price"><strong id="proPrice">¥399</strong><span id="proPer">/ 月</span></p>
+          <p class="plan__for" id="proSave" hidden>按年付费,合每月 ¥319,立省 20%</p>
           <p class="plan__for">适合成长型团队与初创公司</p>
           <ul class="plan__list">
             <li>20 个监测站点</li>
@@ -398,6 +402,7 @@
         <a href="#features">核心能力</a>
         <a href="#pricing">定价</a>
         <a href="dashboard.html">控制台演示</a>
+        <a href="status.html">系统状态</a>
       </nav>
       <nav class="footer__col" aria-label="资源">
         <h4>资源</h4>
@@ -424,6 +429,27 @@
   <script src="js/auth.js?v=4"></script>
   <script src="js/main.js?v=5"></script>
   <script src="js/intro.js?v=2"></script>
+  <script>
+    // 定价 月付/年付 切换
+    (function () {
+      var btns = document.querySelectorAll(".billing-toggle .mini-btn");
+      if (!btns.length) return;
+      btns.forEach(function (b) {
+        b.addEventListener("click", function () {
+          btns.forEach(function (x) { x.classList.remove("active"); });
+          b.classList.add("active");
+          var yearly = b.dataset.billing === "yearly";
+          var price = document.getElementById("proPrice");
+          var per = document.getElementById("proPer");
+          var save = document.getElementById("proSave");
+          if (!price) return;
+          price.textContent = yearly ? "¥319" : "¥399";
+          per.textContent = yearly ? "/ 月 · 按年付" : "/ 月";
+          save.hidden = !yearly;
+        });
+      });
+    })();
+  </script>
   <script>
     // 已登录用户:导航栏"登录"替换为用户名,直达控制台
     // api 模式用真实会话探测;demo 模式用 localStorage

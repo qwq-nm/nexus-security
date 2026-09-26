@@ -541,3 +541,59 @@ table.dt tbody tr:hover { background: rgba(56, 225, 255, 0.05); }
 th.sortable { cursor: pointer; user-select: none; transition: color 0.15s ease; }
 th.sortable:hover { color: var(--accent); }
 #dateFrom, #dateTo { color-scheme: dark; }
+
+/* ── 命令面板 ────────────────────────────── */
+.palette { position: fixed; inset: 0; z-index: 400; }
+.palette__mask { position: absolute; inset: 0; background: rgba(2, 4, 10, 0.65); backdrop-filter: blur(4px); }
+.palette__panel {
+  position: absolute; left: 50%; top: 16%;
+  transform: translateX(-50%);
+  width: min(560px, 92vw);
+  background: rgba(8, 12, 24, 0.98);
+  border: 1px solid rgba(56, 225, 255, 0.35); border-radius: 18px;
+  box-shadow: 0 40px 120px rgba(0, 0, 0, 0.7), 0 0 60px rgba(56, 225, 255, 0.08);
+  overflow: hidden;
+  animation: viewIn 0.2s ease;
+}
+.palette__panel input {
+  width: 100%; padding: 17px 20px;
+  background: transparent; border: none; outline: none;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text); font-size: 15px; font-family: var(--font);
+}
+.palette__panel input::placeholder { color: var(--text-faint); }
+.palette__list { max-height: 320px; overflow-y: auto; padding: 8px; }
+.palette__item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 14px; border-radius: 10px;
+  font-size: 13.8px; color: var(--text-dim); cursor: pointer;
+}
+.palette__item:hover, .palette__item.active { background: rgba(56, 225, 255, 0.1); color: var(--text); }
+.palette__icon { width: 22px; text-align: center; flex: none; }
+.palette__foot {
+  display: flex; justify-content: space-between;
+  padding: 10px 18px; border-top: 1px solid var(--border-soft);
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.12em; color: var(--text-faint);
+}
+
+/* ── 分页器 ──────────────────────────────── */
+.pager {
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  padding: 14px 0 2px;
+}
+.pager .mini-btn:disabled { opacity: 0.35; cursor: default; }
+
+/* ── 打印样式:只输出当前视图 ─────────────── */
+@media print {
+  .sidebar, .topbar, .toasts, .batchbar, .drawer, .palette, .bg-layer,
+  .bg-grid, #alertPager, .toolbar, .modal-mask { display: none !important; }
+  .app-main { margin: 0 !important; }
+  body { background: #fff !important; }
+  body::after { display: none !important; }
+  .card { background: #fff !important; border-color: #ddd !important; box-shadow: none !important; break-inside: avoid; }
+  .view { display: none !important; }
+  .view.active { display: block !important; }
+  .kpi__value, .stat__num, td, th, .card__title, .section__title, .comp__head, .legend__row, .feed__msg { color: #111 !important; -webkit-text-fill-color: #111 !important; }
+  .kpi__label, .td-dim, .td-mono, .card__hint, .section__sub, .feed__time { color: #555 !important; }
+  .tag--crit, .tag--high, .tag--med, .tag--ok { color: #111 !important; }
+}

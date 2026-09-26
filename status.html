@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <script>document.documentElement.classList.add("intro-pending");</script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>系统状态 · NEXUS</title>
+  <meta name="description" content="NEXUS 全部服务组件的实时运行状态与可用性历史。" />
+  <meta name="theme-color" content="#030408" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2l11 5v8c0 7.2-4.7 12.4-11 15C9.7 27.4 5 22.2 5 15V7l11-5z' fill='none' stroke='%2338e1ff' stroke-width='2'/%3E%3Cpath d='M11 16l3.5 3.5L21 13' fill='none' stroke='%2338e1ff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="css/style.css?v=3" />
+  <style>
+    .status-wrap { max-width: 860px; margin: 0 auto; padding: 150px 24px 80px; }
+    .status-hero { text-align: center; margin-bottom: 56px; }
+    .status-hero .big {
+      display: inline-flex; align-items: center; gap: 12px;
+      font-size: clamp(24px, 3.4vw, 34px); font-weight: 750;
+    }
+    .status-hero p { margin-top: 12px; color: var(--text-dim); }
+    .comp-list { display: grid; gap: 12px; }
+    .comp-card {
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      padding: 20px 24px; border-radius: var(--radius-lg);
+      background: var(--surface); border: 1px solid var(--line-soft);
+    }
+    .comp-card b { font-size: 15.5px; }
+    .comp-card small { display: block; color: var(--text-faint); margin-top: 3px; }
+    .uptime { display: flex; gap: 2px; align-items: flex-end; }
+    .uptime i { width: 5px; height: 18px; border-radius: 2px; background: var(--green); opacity: 0.75; }
+    .uptime i.warn { background: var(--amber); }
+    .status-meta { margin-top: 40px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; text-align: center; }
+    .status-meta .card { padding: 22px; }
+    .status-meta b { font-size: 26px; font-weight: 750; }
+    .status-meta p { color: var(--text-faint); font-size: 13px; margin-top: 4px; font-family: var(--mono); letter-spacing: 0.1em; }
+    @media (max-width: 700px) { .status-meta { grid-template-columns: 1fr; } .comp-card { flex-direction: column; align-items: flex-start; } }
+  </style>
+</head>
+<body>
+  <div class="bg-layer" aria-hidden="true">
+    <div class="bg-glow bg-glow--hero"></div>
+    <div class="bg-grid"></div>
+  </div>
+
+  <header class="nav-wrap">
+    <nav class="nav">
+      <a class="nav__logo" href="index.html">
+        <svg class="nav__logo-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M16 2l11 5v8c0 7.2-4.7 12.4-11 15C9.7 27.4 5 22.2 5 15V7l11-5z" fill="none" stroke="currentColor" stroke-width="2"/>
+          <path d="M11 16l3.5 3.5L21 13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>NEXUS</span>
+      </a>
+      <div class="nav__actions">
+        <a class="nav__login" href="index.html">返回官网</a>
+        <a class="btn btn--light btn--sm" href="dashboard.html">进入控制台</a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="status-wrap">
+    <div class="status-hero">
+      <p class="hero__eyebrow" style="justify-content:center">System Status</p>
+      <h1 class="big" style="margin-top:18px"><span class="badge__dot"></span> 全部系统运行正常</h1>
+      <p>所有服务组件实时在线 · 数据每 60 秒自动刷新(演示)</p>
+    </div>
+
+    <div class="comp-list" id="compList"></div>
+
+    <div class="status-meta">
+      <div class="card"><b>99.99%</b><p>90 天可用性</p></div>
+      <div class="card"><b>42ms</b><p>平均 API 延迟</p></div>
+      <div class="card"><b>0</b><p>近 90 天事故</p></div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer__bar" style="border-top:none;margin-top:0;padding-top:0">
+      <p>© 2026 NEXUS Security. 仅为演示站点。</p>
+      <p class="footer__status"><span class="badge__dot"></span>status.nexussec.example</p>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      const comps = [
+        ["API 网关", "核心业务接口 · 集群 3 节点"],
+        ["威胁情报引擎", "200+ 情报源实时同步"],
+        ["事件处理管道", "日均 18 亿事件接入"],
+        ["告警通知服务", "邮件 / Webhook / 桌面推送"],
+        ["控制台 Web", "安全运营控制台前端"],
+      ];
+      const list = document.getElementById("compList");
+      const rnd = (seed) => { let s = seed; return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }; };
+      comps.forEach((c, i) => {
+        const r = rnd(i * 77 + 13);
+        const card = document.createElement("div");
+        card.className = "comp-card";
+        const bars = Array.from({ length: 42 }, (_, k) => {
+          const v = r();
+          return `<i class="${v > 0.965 ? "warn" : ""}" title="${42 - k} 天前"></i>`;
+        }).join("");
+        card.innerHTML = `<div><b></b><small></small></div><div class="uptime" title="近 42 天可用性">${bars}</div>`;
+        card.querySelector("b").textContent = c[0];
+        card.querySelector("small").textContent = c[1];
+        list.appendChild(card);
+      });
+      if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(function () {});
+    })();
+  </script>
+</body>
+</html>

@@ -221,6 +221,11 @@
             </table>
           </div>
           <p class="empty" id="alertEmpty" hidden>没有符合条件的告警。</p>
+          <div class="pager" id="alertPager">
+            <button class="mini-btn" id="pgPrev">← 上一页</button>
+            <span class="td-mono" id="pgInfo">1 / 1</span>
+            <button class="mini-btn" id="pgNext">下一页 →</button>
+          </div>
         </section>
 
         <!-- ════ 资产管理 ════ -->
@@ -299,7 +304,10 @@
             <div class="card" style="grid-column: 1 / -1;">
               <div class="card__head">
                 <p class="card__title">安全周报归档</p>
+                <div style="display:flex;gap:8px">
                 <button class="mini-btn" id="genWeekly" title="根据当前数据生成周报并下载">⬇ 生成本周周报</button>
+                <button class="mini-btn" id="printReport" title="打印或导出 PDF">🖨 打印 / PDF</button>
+              </div>
               </div>
               <div class="report-list" id="reportList"></div>
             </div>
@@ -354,6 +362,21 @@
                 <button class="btn btn--primary" type="submit" id="pwBtn">更新密码</button>
               </form>
             </div>
+            <div class="card">
+              <div class="card__head">
+                <p class="card__title">通知偏好</p>
+                <p class="card__hint">桌面通知触发等级</p>
+              </div>
+              <div class="field">
+                <label for="notifyLevel">当告警等级达到以下级别时弹出桌面通知</label>
+                <select id="notifyLevel" style="width:100%;padding:11px 14px;border-radius:10px;background:rgba(255,255,255,0.05);border:1px solid var(--border-soft);color:var(--text);font-family:var(--font)">
+                  <option value="crit">仅严重(CRIT)</option>
+                  <option value="high">高危及以上</option>
+                  <option value="med">中危及以上</option>
+                </select>
+              </div>
+              <p class="settings-note" style="margin-top:12px">仅在页面处于后台时触发,避免打扰当前操作。</p>
+            </div>
             <div class="card" style="grid-column: 1 / -1;">
               <div class="card__head">
                 <p class="card__title">最近登录</p>
@@ -381,13 +404,23 @@
     </div>
   </aside>
 
+  <!-- 命令面板(Ctrl+K)-->
+  <div class="palette" id="palette" hidden>
+    <div class="palette__mask" id="paletteMask"></div>
+    <div class="palette__panel" role="dialog" aria-modal="true">
+      <input type="text" id="paletteInput" placeholder="输入命令或搜索告警…(↑↓ 选择,Enter 执行,Esc 关闭)" autocomplete="off" />
+      <div class="palette__list" id="paletteList"></div>
+      <div class="palette__foot"><span>Ctrl / Cmd + K 唤起</span><span>NEXUS Command</span></div>
+    </div>
+  </div>
+
   <!-- Toast 与模态框挂载点 -->
   <div class="toasts" id="toasts"></div>
   <div id="modalRoot"></div>
 
   <script src="js/backend.js?v=3"></script>
   <script src="js/auth.js?v=4"></script>
-  <script src="js/dashboard.js?v=11"></script>
+  <script src="js/dashboard.js?v=12"></script>
 <script>if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(function(){});</script>
 </body>
 </html>
