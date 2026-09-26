@@ -108,6 +108,7 @@
     state.feed = state.feed.slice(0, 30);
     if (mode === "demo") save.feed();
     if (currentView === "overview") renderFeed();
+    updateBell();
   }
   function pushFeed(level, msg) {           // demo 模式本地写入
     if (mode === "api") return;
@@ -130,6 +131,7 @@
     assets: ["资产管理", "主机、容器与云资产的暴露面与风险"],
     playbooks: ["处置剧本", "自动化响应规则:触发条件与执行动作"],
     reports: ["报表中心", "合规达标率、风险排行与周报归档"],
+    settings: ["账号设置", "管理你的账户与安全凭据"],
   };
   let currentView = "overview";
 
@@ -145,6 +147,7 @@
     if (name === "assets") renderAssets();
     if (name === "playbooks") renderPlaybooks();
     if (name === "reports") renderReports();
+    if (name === "settings") renderSettings();
     window.scrollTo(0, 0);
   }
   $$(".sidebar__item[data-view]").forEach((b) =>
@@ -439,6 +442,8 @@
         <td><span class="tag tag--${STATUS_TAG[a.status] || "idle"}">${a.status}</span></td>
         <td class="td-mono">${fmtFull(a.ts)}</td>
         <td><div class="row-actions">${ops || '<span class="td-dim">—</span>'}</div></td>`;
+      tr.dataset.id = a.id;
+      tr.style.cursor = "pointer";
       tr.children[2].textContent = a.type;
       tr.children[3].textContent = a.src;
       tr.children[4].textContent = a.asset;
@@ -448,11 +453,15 @@
   }
   $("#alertRows").addEventListener("click", (e) => {
     const btn = e.target.closest("button[data-act]");
-    if (btn) handleAlertAction(btn.dataset.act, btn.dataset.id);
+    if (btn) { handleAlertAction(btn.dataset.act, btn.dataset.id); return; }
+    const tr = e.target.closest("tr[data-id]");
+    if (!tr) return;
+    const a = state.alerts.find((x) => x.id === tr.dataset.id);
+    if (a) openAlertDrawer(a);
   });
-  ["alertSearch", "alertLevel", "alertStatus"].forEach((id) => {
-    $("#" + id).addEventListener("input", renderAlerts);
-  });
+  const debouncedAlerts = debounce(renderAlerts, 150);
+  $("#alertSearch").addEventListener("input", debouncedAlerts);
+  ["alertLevel", "alertStatus"].forEach((id) => $("#" + id).addEventListener("change", renderAlerts));
 
   /* ── 资产管理 ─────────────────────────────── */
   function riskColor(v) { return v >= 60 ? "risk--high" : v >= 35 ? "risk--mid" : "risk--low"; }
@@ -543,7 +552,8 @@
     const btn = e.target.closest("button[data-act]");
     if (btn) handleAssetAction(btn.dataset.act, btn.dataset.id);
   });
-  ["assetSearch", "assetStatus"].forEach((id) => $("#" + id).addEventListener("input", renderAssets));
+  $("#assetSearch").addEventListener("input", debounce(renderAssets, 150));
+  $("#assetStatus").addEventListener("change", renderAssets);
 
   /* ── 处置剧本 ─────────────────────────────── */
   function renderPlaybooks() {
@@ -681,6 +691,206 @@
     }
   }
 
+  /* ── 通知铃铛 ─────────────────────────────── */
+  const SEEN_KEY = "nexus_seen_" + (user.email || "demo");
+  let seenTs = N.read(SEEN_KEY, 0);
+
+  function updateBell() {
+    const unread = state.feed.filter((f) => f.ts > seenTs).length;
+    const badge = $("#bellBadge");
+    badge.textContent = unread > 99 ? "99+" : String(unread);
+    badge.hidden = unread === 0;
+  }
+  function renderNotifList() {
+    const list = $("#notifList");
+    list.innerHTML = "";
+    const items = state.feed.slice(0, 12);
+    if (!items.length) { list.innerHTML = '<p class="notif__empty">暂无通知</p>'; return; }
+    for (const f of items) {
+      const row = document.createElement("div");
+      row.className = "notif__item" + (f.ts > seenTs ? " unread" : "");
+      const dot = { ok: "ok", warn: "warn", crit: "crit" }[f.level] || "warn";
+      row.innerHTML = `<span class="feed__time"></span><span class="feed__dot feed__dot--${dot}"></span><span class="feed__msg"></span>`;
+      row.children[0].textContent = fmtHM(f.ts);
+      row.children[2].textContent = f.msg;
+      list.appendChild(row);
+    }
+  }
+  $("#bellBtn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    const panel = $("#notifPanel");
+    const open = panel.hidden;
+    panel.hidden = !open;
+    $("#bellBtn").setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) renderNotifList();
+  });
+  document.addEventListener("click", (e) => {
+    const panel = $("#notifPanel");
+    if (!panel.hidden && !e.target.closest(".bell-wrap")) { panel.hidden = true; $("#bellBtn").setAttribute("aria-expanded", "false"); }
+  });
+  $("#markSeen").addEventListener("click", () => {
+    seenTs = Date.now();
+    N.write(SEEN_KEY, seenTs);
+    renderNotifList(); updateBell();
+  });
+
+  /* ── 告警详情抽屉 ─────────────────────────── */
+  const drawer = $("#drawer");
+  function openAlertDrawer(a) {
+    $("#drawerTitle").textContent = a.id;
+    const ops = alertActions(a);
+    $("#drawerBody").innerHTML = `
+      <dl class="kv">
+        <dt>等级</dt><dd><span class="tag tag--${a.level}">${LEVEL_NAME[a.level]}</span></dd>
+        <dt>类型</dt><dd></dd>
+        <dt>状态</dt><dd><span class="tag tag--${STATUS_TAG[a.status] || "idle"}">${a.status}</span></dd>
+        <dt>来源</dt><dd class="dim"></dd>
+        <dt>目标资产</dt><dd class="dim"></dd>
+        <dt>首次发现</dt><dd class="dim">${fmtFull(a.ts)}</dd>
+        <dt>处置人</dt><dd class="dim">${a.handledBy || "—"}</dd>
+      </dl>
+      <p class="drawer__desc"></p>
+      <div class="chain">
+        <div class="chain__step"><b>检测</b>探针捕获异常行为并生成原始事件</div>
+        <div class="chain__step"><b>情报比对</b>与 200+ 威胁情报源实时碰撞命中</div>
+        <div class="chain__step"><b>自动分级</b>引擎评定等级为「${LEVEL_NAME[a.level]}」并聚合降噪</div>
+        <div class="chain__step"><b>当前状态</b>${a.status} · 等待${a.status === "待处置" ? "人工处置" : "持续观察"}</div>
+      </div>`;
+    const dd = $("#drawerBody").querySelectorAll("dd");
+    dd[1].textContent = a.type;
+    dd[3].textContent = a.src;
+    dd[4].textContent = a.asset;
+    $("#drawerBody").querySelector(".drawer__desc").textContent = a.desc;
+    $("#drawerFoot").innerHTML = ops.length
+      ? ops.map(([label, act, cls]) => `<button class="mini-btn mini-btn--${cls || "default"}" data-act="${act}" data-id="${a.id}">${label}</button>`).join("")
+      : '<span class="td-dim">该告警已完结,无可用操作。</span>';
+    drawer.classList.add("open");
+    drawer.setAttribute("aria-hidden", "false");
+  }
+  function closeDrawer() {
+    drawer.classList.remove("open");
+    drawer.setAttribute("aria-hidden", "true");
+  }
+  $("#drawerClose").addEventListener("click", closeDrawer);
+  $("#drawerMask").addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+  $("#drawerFoot").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-act]");
+    if (!btn) return;
+    await handleAlertAction(btn.dataset.act, btn.dataset.id);
+    closeDrawer();
+  });
+
+  function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+
+  /* ── 模拟告警注入 ─────────────────────────── */
+  const SIM_POOL = {
+    types: ["端口扫描", "暴力破解", "SQL 注入", "恶意样本", "异常外联", "弱口令", "钓鱼邮件", "可疑登录"],
+    levels: ["high", "high", "med", "crit", "med", "high", "low", "med"],
+    descs: {
+      "端口扫描": "SYN 全端口扫描,已触发限流策略",
+      "暴力破解": "检测到分布式口令爆破,速率 800 次/分",
+      "SQL 注入": "拦截针对 /api/query 的布尔盲注载荷",
+      "恶意样本": "沙箱确认疑似 Cobalt Strike Beacon",
+      "异常外联": "工作站在非工作时间向未知地址发起连接",
+      "弱口令": "新增账号命中弱口令字典 top100",
+      "钓鱼邮件": "用户收件箱检出伪装发票的钓鱼附件",
+      "可疑登录": "异地 IP 登录成功,触发新设备提醒",
+    },
+  };
+  $("#simulateBtn").addEventListener("click", async () => {
+    if (mode === "api") {
+      const res = await apiCall("POST", "api/alerts/simulate");
+      if (!res) return;
+      state.alerts.unshift(res.alert);
+      if (res.feed) pushFeedEntry(res.feed);
+      toast(`已注入模拟告警 ${res.alert.id}(${res.alert.type})`, "warn");
+    } else {
+      const type = SIM_POOL.types[Math.floor(Math.random() * SIM_POOL.types.length)];
+      const i = Math.floor(Math.random() * SIM_POOL.types.length);
+      const alert = {
+        id: "ALT-" + String(10247 + state.alerts.length + 1),
+        level: SIM_POOL.levels[i], type,
+        src: Math.random() > 0.4 ? `${45 + Math.floor(Math.random() * 180)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${1 + Math.floor(Math.random() * 253)}` : "内生的",
+        asset: (state.assets[Math.floor(Math.random() * state.assets.length)] || { name: "web-cluster-01" }).name,
+        desc: SIM_POOL.descs[type],
+        status: "待处置", ts: Date.now(), handledBy: "",
+      };
+      state.alerts.unshift(alert);
+      pushFeed("crit", `红队演练:注入新告警 ${alert.id}(${type})`);
+      save.alerts();
+      toast(`已注入模拟告警 ${alert.id}(${type})`, "warn");
+    }
+    renderKpis();
+    if (currentView === "alerts") renderAlerts();
+  });
+
+  /* ── CSV 导出 ─────────────────────────────── */
+  function downloadCsv(filename, header, rows) {
+    const esc = (v) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const csv = "\uFEFF" + [header, ...rows].map((r) => r.map(esc).join(",")).join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+  $("#exportAlerts").addEventListener("click", () => {
+    if (mode === "api") { window.location.href = "api/export/alerts.csv"; return; }
+    downloadCsv("nexus-alerts.csv",
+      ["告警ID", "等级", "类型", "来源", "目标资产", "状态", "时间", "处置人"],
+      state.alerts.map((a) => [a.id, LEVEL_NAME[a.level], a.type, a.src, a.asset, a.status, new Date(a.ts).toLocaleString("zh-CN"), a.handledBy]));
+    toast("告警数据已导出为 CSV");
+  });
+  $("#exportAssets").addEventListener("click", () => {
+    if (mode === "api") { window.location.href = "api/export/assets.csv"; return; }
+    downloadCsv("nexus-assets.csv",
+      ["资产名称", "类型", "IP", "系统", "暴露端口", "风险评分", "状态"],
+      state.assets.map((a) => [a.name, a.type, a.ip, a.os, a.exposure, a.risk, a.status]));
+    toast("资产数据已导出为 CSV");
+  });
+
+  /* ── 账号设置 ─────────────────────────────── */
+  function renderSettings() {
+    $("#settingsMode").textContent = mode === "api" ? "真实后端模式 · 数据存储于 SQLite" : "浏览器演示模式 · 数据存储于 localStorage";
+    const info = $("#settingsInfo");
+    info.innerHTML = `<dl class="kv">
+      <dt>称呼</dt><dd></dd>
+      <dt>公司/团队</dt><dd></dd>
+      <dt>邮箱</dt><dd></dd>
+      <dt>运行模式</dt><dd class="dim">${mode === "api" ? "API · 会话认证" : "演示 · 本地存储"}</dd>
+    </dl>`;
+    const dds = info.querySelectorAll("dd");
+    dds[0].textContent = user.name;
+    dds[1].textContent = user.company || "—";
+    dds[2].textContent = user.email;
+  }
+  $("#pwForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const errEl = $("#pwError");
+    errEl.classList.remove("show");
+    const oldPw = $("#pwOld").value, newPw = $("#pwNew").value, confirmPw = $("#pwConfirm").value;
+    if (!oldPw) { errEl.textContent = "请输入当前密码。"; errEl.classList.add("show"); return; }
+    if (newPw !== confirmPw) { errEl.textContent = "两次输入的新密码不一致。"; errEl.classList.add("show"); return; }
+    const btn = $("#pwBtn");
+    btn.disabled = true; btn.textContent = "更新中…";
+    try {
+      if (mode === "api") {
+        await API.call("PUT", "api/auth/password", { oldPassword: oldPw, newPassword: newPw });
+      } else {
+        const res = await N.changePassword(user.email, oldPw, newPw);
+        if (!res.ok) throw new Error(res.error);
+      }
+      toast("密码已更新,下次登录请使用新密码");
+      $("#pwForm").reset();
+    } catch (err) {
+      errEl.textContent = err.message; errEl.classList.add("show");
+    } finally {
+      btn.disabled = false; btn.textContent = "更新密码";
+    }
+  });
+
   /* ── 退出登录 ─────────────────────────────── */
   $("#logoutBtn").addEventListener("click", async () => {
     const ok = await confirmModal({ title: "退出登录", body: "确定要退出安全运营控制台吗?", okText: "退出" });
@@ -697,5 +907,6 @@
   renderAssets();
   renderPlaybooks();
   renderReports();
+  updateBell();
   drawCharts();
 })();

@@ -192,10 +192,34 @@
     write(K.feed(email), feed);
   }
 
+  /** 演示模式:修改密码(校验旧密码) */
+  async function changePassword(email, oldPassword, newPassword) {
+    const users = read(K.users, []);
+    const u = users.find((x) => x.email === email);
+    if (!u) return { ok: false, error: "账号不存在。" };
+    const oldHash = await hashPassword(oldPassword);
+    if (u.hash !== oldHash) return { ok: false, error: "当前密码不正确。" };
+    if (newPassword.length < 8 || !(/[a-zA-Z]/.test(newPassword) && /\d/.test(newPassword)))
+      return { ok: false, error: "新密码至少 8 位,且需同时包含字母与数字。" };
+    if (oldPassword === newPassword) return { ok: false, error: "新密码不能与当前密码相同。" };
+    u.hash = await hashPassword(newPassword);
+    write(K.users, users);
+    return { ok: true };
+  }
+
+  /** 演示模式:重置演示账号口令(保证"一键体验"始终可用) */
+  async function resetDemoPassword() {
+    const users = read(K.users, []);
+    const u = users.find((x) => x.email === DEMO.email);
+    if (!u) { ensureDemoUser(); return; }
+    u.hash = await hashPassword(DEMO.password);
+    write(K.users, users);
+  }
+
   window.NEXUS = {
     K, read, write, hashPassword,
     registerUser, loginUser, setSession, clearSession,
-    currentUser, requireAuth, ensureDemoUser, seedUserData,
+    currentUser, requireAuth, ensureDemoUser, seedUserData, changePassword, resetDemoPassword,
     DEMO,
   };
 })();

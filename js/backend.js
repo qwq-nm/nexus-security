@@ -1,8 +1,10 @@
 /* ═══════════════════════════════════════════════
    NEXUS · 前端后端探测层
    探测 GET api/auth/me:
-   - 200 → api 模式(真实后端:SQLite / 会话 / REST / SSE)
-   - 404 / 网络失败 → demo 模式(localStorage,GitHub Pages 静态托管)
+   - 200 → api 模式(已登录)
+   - 401 → api 模式(后端存在,未登录 —— 由页面引导登录)
+   - 404 / 网络失败 → demo 模式(静态托管,如 GitHub Pages)
+   注意:模式由「后端是否存在」决定,而非登录态。
    ═══════════════════════════════════════════════ */
 
 (() => {
@@ -12,10 +14,14 @@
     headers: { Accept: "application/json" },
     credentials: "same-origin",
   })
-    .then((r) => (r.ok ? r.json() : null))
-    .catch(() => null);
+    .then(async (r) => {
+      if (r.status === 200) return { mode: "api", user: await r.json() };
+      if (r.status === 401) return { mode: "api", user: null };
+      return { mode: "demo", user: null };   // 404 / 其他 → 静态托管
+    })
+    .catch(() => ({ mode: "demo", user: null }));
 
-  window.NEXUS_MODE = probe.then((user) => ({ mode: user ? "api" : "demo", user }));
+  window.NEXUS_MODE = probe;
 
   window.NEXUS_API = {
     ready: probe,

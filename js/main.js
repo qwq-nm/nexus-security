@@ -50,8 +50,9 @@
     }, { passive: true });
 
     let lastT = performance.now();
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     function frame(t) {
-      const dt = Math.min((t - lastT) / 1000, 0.05);
+      const dt = reduced ? 0 : Math.min((t - lastT) / 1000, 0.05);
       lastT = t;
       ctx.clearRect(0, 0, W, H);
       const cx = CX + parX, cy = CY + parY;
@@ -128,7 +129,8 @@
 
       requestAnimationFrame(frame);
     }
-    requestAnimationFrame(frame);
+    if (reduced) frame(performance.now()); // 减少动态:只绘制静态一帧
+    else requestAnimationFrame(frame);
   }
 
   /* ── 2. 威胁事件流 ───────────────────────── */

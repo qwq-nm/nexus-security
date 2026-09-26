@@ -60,7 +60,11 @@
 
     document.getElementById("demoBtn").addEventListener("click", () => {
       hideErr(errEl);
-      doLogin(DEMO.email, DEMO.password);
+      if (mode === "demo") {
+        N.resetDemoPassword().then(() => doLogin(DEMO.email, DEMO.password));
+      } else {
+        doLogin(DEMO.email, DEMO.password);
+      }
     });
   }
 
@@ -126,8 +130,10 @@
       if (mode === "api") {
         doDemoApi();
       } else {
-        setSession(DEMO.email);
-        location.replace("dashboard.html");
+        N.resetDemoPassword().then(() => {
+          setSession(DEMO.email);
+          location.replace("dashboard.html");
+        });
       }
     });
     async function doDemoApi() {

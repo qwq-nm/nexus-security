@@ -306,6 +306,52 @@ app.post("/api/playbooks/:id/run", requireUser, (req, res) => {
   res.json({ ok: true, feed, handled, playbook: store.getPlaybooks(uid).find((x) => x.id === p.id) });
 });
 
+/* ── 模拟新告警(红队演练)─────────────────── */
+app.post("/api/alerts/simulate", requireUser, (req, res) => {
+  const uid = req.user.id;
+  const alert = store.simulateAlert(uid);
+  const feed = store.appendFeed(uid, "crit", `红队演练:注入新告警 ${alert.id}(${alert.type})`);
+  ssePush(uid, feed);
+  res.json({ ok: true, feed, alert: toAlertJson(alert) });
+});
+
+/* ── CSV 导出(带 BOM,Excel 友好)────────── */
+app.get("/api/export/:what.csv", requireUser, (req, res) => {
+  const uid = req.user.id;
+  let rows, header;
+  if (req.params.what === "alerts") {
+    header = ["告警ID", "等级", "类型", "来源", "目标资产", "状态", "时间", "处置人"];
+    rows = store.getAlerts(uid).map((a) => [a.id, a.level, a.type, a.src, a.asset, a.status, new Date(a.ts).toLocaleString("zh-CN"), a.handledBy]);
+  } else if (req.params.what === "assets") {
+    header = ["资产名称", "类型", "IP", "系统", "暴露端口", "风险评分", "状态"];
+    rows = store.getAssets(uid).map((a) => [a.name, a.type, a.ip, a.os, a.exposure, a.risk, a.status]);
+  } else {
+    return res.status(404).json({ error: "未知导出类型。" });
+  }
+  const esc = (v) => {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const csv = "\uFEFF" + [header, ...rows].map((r) => r.map(esc).join(",")).join("\r\n");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="nexus-${req.params.what}.csv"`);
+  res.send(csv);
+});
+
+/* ── 修改密码 ─────────────────────────────── */
+app.put("/api/auth/password", requireUser, (req, res) => {
+  const { oldPassword, newPassword } = req.body || {};
+  if (!store.verifyPassword(String(oldPassword || ""), req.user.pass))
+    return res.status(400).json({ error: "当前密码不正确。" });
+  const pw = String(newPassword || "");
+  if (pw.length < 8 || !(/[a-zA-Z]/.test(pw) && /\d/.test(pw)))
+    return res.status(400).json({ error: "新密码至少 8 位,且需同时包含字母与数字。" });
+  if (store.verifyPassword(pw, req.user.pass))
+    return res.status(400).json({ error: "新密码不能与当前密码相同。" });
+  store.db.prepare("UPDATE users SET pass = ? WHERE id = ?").run(store.hashPassword(pw), req.user.id);
+  res.json({ ok: true });
+});
+
 /* ── 演示账号(启动时确保存在)────────────── */
 function ensureDemoUser() {
   const email = "demo@nexus.sec";

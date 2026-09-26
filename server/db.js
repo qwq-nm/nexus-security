@@ -245,6 +245,45 @@ function getAlert(userId, id) {
   const r = db.prepare("SELECT * FROM alerts WHERE user_id = ? AND id = ?").get(userId, id);
   return r || null;
 }
+function alertCount(userId) {
+  return db.prepare("SELECT COUNT(*) AS c FROM alerts WHERE user_id = ?").get(userId).c;
+}
+function insertAlert(userId, a) {
+  db.prepare(
+    "INSERT INTO alerts (id, user_id, level, type, src, asset, desc, status, ts, handled_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).run(a.id, userId, a.level, a.type, a.src, a.asset, a.desc, a.status, a.ts, a.handledBy || "");
+  return getAlert(userId, a.id);
+}
+
+/* ── 模拟告警生成池 ───────────────────────── */
+const SIM_POOLS = {
+  types: ["端口扫描", "暴力破解", "SQL 注入", "恶意样本", "异常外联", "弱口令", "钓鱼邮件", "可疑登录"],
+  levels: ["high", "high", "med", "crit", "med", "high", "low", "med"],
+  descs: {
+    "端口扫描": "SYN 全端口扫描,已触发限流策略",
+    "暴力破解": "检测到分布式口令爆破,速率 800 次/分",
+    "SQL 注入": "拦截针对 /api/query 的布尔盲注载荷",
+    "恶意样本": "沙箱确认疑似 Cobalt Strike Beacon",
+    "异常外联": "工作站在非工作时间向未知地址发起连接",
+    "弱口令": "新增账号命中弱口令字典 top100",
+    "钓鱼邮件": "用户收件箱检出伪装发票的钓鱼附件",
+    "可疑登录": "异地 IP 登录成功,触发新设备提醒",
+  },
+};
+function simulateAlert(userId) {
+  const rnd = Math.random;
+  const assets = getAssets(userId);
+  const type = SIM_POOLS.types[Math.floor(rnd() * SIM_POOLS.types.length)];
+  const level = SIM_POOLS.levels[Math.floor(rnd() * SIM_POOLS.levels.length)];
+  const asset = assets.length ? assets[Math.floor(rnd() * assets.length)].name : "web-cluster-01";
+  const src = rnd() > 0.4 ? `${45 + Math.floor(rnd() * 180)}.${Math.floor(rnd() * 255)}.${Math.floor(rnd() * 255)}.${1 + Math.floor(rnd() * 253)}` : "内生的";
+  const id = "ALT-" + String(10247 + alertCount(userId));
+  return insertAlert(userId, {
+    id, level, type, src, asset,
+    desc: SIM_POOLS.descs[type],
+    status: "待处置", ts: Date.now(), handledBy: "",
+  });
+}
 function getAssets(userId) {
   return db.prepare("SELECT * FROM assets WHERE user_id = ?").all(userId)
     .map((r) => ({ id: r.id, name: r.name, type: r.type, ip: r.ip, os: r.os, exposure: r.exposure, risk: r.risk, status: r.status }));
@@ -276,6 +315,6 @@ module.exports = {
   db, hashPassword, verifyPassword,
   createUser, getUserByEmail, getUserById, publicUser,
   createSession, getUserByToken, deleteSession, purgeExpiredSessions,
-  seedUserData, getAlerts, getAlert, getAssets, getAsset,
+  seedUserData, getAlerts, getAlert, alertCount, insertAlert, simulateAlert, getAssets, getAsset,
   getPlaybooks, getPlaybook, getTrend, getFeed, appendFeed,
 };
