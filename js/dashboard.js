@@ -164,7 +164,7 @@
     if (name === "assets") renderAssets();
     if (name === "playbooks") renderPlaybooks();
     if (name === "reports") renderReports();
-    if (name === "settings") renderSettings();
+    if (name === "settings") { renderSettings(); loadLogins(); }
     window.scrollTo(0, 0);
   }
   $$(".sidebar__item[data-view]").forEach((b) =>
@@ -188,6 +188,54 @@
     $("#kpiPendingDelta").className = "kpi__delta " + (critPending ? "up" : "down");
     $("#navAlertBadge").textContent = pending.length;
     $("#navAlertBadge").style.display = pending.length ? "" : "none";
+    drawGauge();
+  }
+
+  /* ── 安全健康分仪表 ───────────────────────── */
+  function drawGauge() {
+    const cv = $("#healthGauge");
+    if (!cv) return;
+    const ctx = cv.getContext("2d");
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = 120, h = 78;
+    cv.width = w * dpr; cv.height = h * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const pending = state.alerts.filter((a) => a.status === "待处置" || a.status === "处理中").length;
+    const critPending = state.alerts.filter((a) => ["待处置", "处理中"].includes(a.status) && a.level === "crit").length;
+    const isolated = state.assets.filter((a) => a.status === "已隔离").length;
+    const avgRisk = state.assets.length
+      ? state.assets.reduce((s, a) => s + a.risk, 0) / state.assets.length
+      : 0;
+    const score = Math.max(0, Math.min(100, Math.round(
+      100 - pending * 2.5 - critPending * 5 - isolated * 3 - avgRisk * 0.25
+    )));
+    const color = score >= 80 ? "#4ade80" : score >= 60 ? "#38e1ff" : score >= 40 ? "#fbbf24" : "#f87171";
+    const hint = $("#healthHint");
+    if (hint) {
+      hint.textContent = score >= 80 ? "▲ 态势良好" : score >= 60 ? "● 需要关注" : "▲ 建议立即处置";
+      hint.className = "kpi__delta " + (score >= 80 ? "down" : "up");
+    }
+
+    // 弧形仪表(180°)
+    const cx = w / 2, cy = h - 8, r = 44;
+    ctx.lineWidth = 8; ctx.lineCap = "round";
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.15)";
+    ctx.beginPath(); ctx.arc(cx, cy, r, Math.PI, Math.PI * 2); ctx.stroke();
+    const end = Math.PI + Math.PI * (score / 100);
+    const grad = ctx.createLinearGradient(0, 0, w, 0);
+    grad.addColorStop(0, color); grad.addColorStop(1, "#e2f9ff");
+    ctx.strokeStyle = grad;
+    ctx.beginPath(); ctx.arc(cx, cy, r, Math.PI, end); ctx.stroke();
+    // 分数文字
+    ctx.fillStyle = "#eef1f7";
+    ctx.font = "700 20px " + getComputedStyle(document.body).fontFamily;
+    ctx.textAlign = "center";
+    ctx.fillText(String(score), cx, cy - 8);
+    ctx.font = "9px " + getComputedStyle(document.body).fontFamily;
+    ctx.fillStyle = "rgba(153,162,178,0.8)";
+    ctx.fillText("HEALTH", cx, cy + 2);
+    ctx.textAlign = "left";
   }
 
   /* ── 总览:事件流 ─────────────────────────── */
@@ -209,6 +257,13 @@
   if (mode === "api") {
     try {
       const es = new EventSource("api/stream");
+      const setConn = (state2) => {
+        const el = $("#connState");
+        if (state2 === "on") { el.className = "tag tag--ok"; el.textContent = "● 实时连接"; }
+        else { el.className = "tag tag--high"; el.textContent = "◌ 重连中"; }
+      };
+      es.onopen = () => setConn("on");
+      es.onerror = () => setConn("off");
       es.onmessage = (ev) => {
         try {
           const d = JSON.parse(ev.data);
@@ -218,6 +273,9 @@
       };
     } catch { /* SSE 不可用时仅依赖 POST 响应 */ }
   } else {
+    const cs = $("#connState");
+    cs.className = "tag tag--idle";
+    cs.textContent = "◌ 本地演示模式";
     const AMBIENT_EVENTS = [
       ["ok", "威胁情报库已同步,新增 IOC 1,024 条"],
       ["warn", "资产 fin-wks-207 出站流量小幅升高,持续观察"],
@@ -535,6 +593,88 @@
     reopen: (a) => `告警 ${a.id} 重新进入待处置队列`,
   };
 
+  /* ── 批量选择与批量处置 ───────────────────── */
+  const batchSel = new Set();
+  function updateBatchBar() {
+    $("#batchBar").hidden = batchSel.size === 0;
+    $("#batchCount").textContent = batchSel.size;
+    $("#selAll").checked = false;
+  }
+  $("#selAll").addEventListener("change", (e) => {
+    const checked = e.target.checked;
+    document.querySelectorAll("#alertRows tr[data-id]").forEach((tr) => {
+      const cb = tr.querySelector('input[type="checkbox"]');
+      if (cb) { cb.checked = checked; }
+      if (checked) batchSel.add(tr.dataset.id); else batchSel.delete(tr.dataset.id);
+    });
+    updateBatchBar();
+  });
+  $("#alertRows").addEventListener("change", (e) => {
+    const cb = e.target.closest('input[type="checkbox"]');
+    if (!cb) return;
+    const tr = cb.closest("tr[data-id]");
+    if (cb.checked) batchSel.add(tr.dataset.id); else batchSel.delete(tr.dataset.id);
+    updateBatchBar();
+  });
+  $("#batchCancel").addEventListener("click", () => {
+    batchSel.clear();
+    renderAlerts();
+    updateBatchBar();
+  });
+  $("#batchBar").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-batch]");
+    if (!btn || !batchSel.size) return;
+    const action = btn.dataset.batch;
+    const ids = [...batchSel];
+    if (mode === "api") {
+      const res = await apiCall("POST", "api/alerts/batch", { action, ids });
+      if (!res) return;
+      for (const a of state.alerts) if (ids.includes(a.id)) { a.status = action === "resolve" ? "已解决" : "已忽略"; a.handledBy = user.name; }
+      if (res.feed) pushFeedEntry(res.feed);
+    } else {
+      for (const a of state.alerts) if (ids.includes(a.id)) { a.status = action === "resolve" ? "已解决" : "已忽略"; a.handledBy = user.name; }
+      pushFeed("ok", `${user.name} 批量${action === "resolve" ? "标记解决" : "忽略"}了 ${ids.length} 条告警`);
+      save.alerts();
+    }
+    batchSel.clear();
+    renderAlerts(); renderKpis(); updateBatchBar();
+    toast(`已批量处理 ${ids.length} 条告警`);
+  });
+
+  /* ── 24 小时告警分布 ──────────────────────── */
+  function drawHour() {
+    const cv = $("#hourChart");
+    if (!cv) return;
+    const ctx = cv.getContext("2d");
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = cv.clientWidth || 800, h = 56;
+    cv.width = w * dpr; cv.height = h * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    const buckets = new Array(24).fill(0);
+    const cutoff = Date.now() - 24 * 3600 * 1000;
+    for (const a of state.alerts) {
+      if (a.ts < cutoff) continue;
+      buckets[new Date(a.ts).getHours()]++;
+    }
+    const max = Math.max(...buckets, 1);
+    const bw = w / 24;
+    const font = getComputedStyle(document.body).fontFamily;
+    for (let i = 0; i < 24; i++) {
+      const bh = (buckets[i] / max) * (h - 18);
+      const grad = ctx.createLinearGradient(0, h - bh, 0, h);
+      grad.addColorStop(0, "rgba(56, 225, 255, 0.85)");
+      grad.addColorStop(1, "rgba(56, 225, 255, 0.15)");
+      ctx.fillStyle = buckets[i] ? grad : "rgba(148, 163, 184, 0.12)";
+      ctx.fillRect(i * bw + 2, h - bh - 12, bw - 4, Math.max(bh, 2));
+      ctx.fillStyle = "rgba(89, 96, 111, 0.8)";
+      ctx.font = "8.5px " + font;
+      ctx.textAlign = "center";
+      if (i % 4 === 0) ctx.fillText(String(i).padStart(2, "0") + "时", i * bw + bw / 2, h - 1);
+    }
+    ctx.textAlign = "left";
+  }
+
   function renderAlerts() {
     const kw = ($("#alertSearch").value || "").trim().toLowerCase();
     const lv = $("#alertLevel").value;
@@ -554,6 +694,7 @@
         .map(([label, act, cls]) => `<button class="mini-btn mini-btn--${cls || "default"}" data-act="${act}" data-id="${a.id}">${label}</button>`)
         .join("");
       tr.innerHTML = `
+        <td><input type="checkbox" data-sel="${a.id}" ${batchSel.has(a.id) ? "checked" : ""} aria-label="选择 ${a.id}" /></td>
         <td class="td-mono">${a.id}</td>
         <td><span class="tag tag--${a.level}">${LEVEL_NAME[a.level]}</span></td>
         <td class="td-main"></td>
@@ -564,16 +705,19 @@
         <td><div class="row-actions">${ops || '<span class="td-dim">—</span>'}</div></td>`;
       tr.dataset.id = a.id;
       tr.style.cursor = "pointer";
-      tr.children[2].textContent = a.type;
-      tr.children[3].textContent = a.src;
-      tr.children[4].textContent = a.asset;
+      if (a.note) tr.children[3].innerHTML = `${a.type} <span class="td-mono" title="${a.note.replace(/"/g, "&quot;")}">✎</span>`;
+      tr.children[3].textContent = a.type;
+      tr.children[4].textContent = a.src;
+      tr.children[5].textContent = a.asset;
       tbody.appendChild(tr);
     }
     $("#alertEmpty").hidden = list.length > 0;
+    drawHour();
   }
   $("#alertRows").addEventListener("click", (e) => {
     const btn = e.target.closest("button[data-act]");
     if (btn) { handleAlertAction(btn.dataset.act, btn.dataset.id); return; }
+    if (e.target.closest('input[type="checkbox"]')) return;
     const tr = e.target.closest("tr[data-id]");
     if (!tr) return;
     const a = state.alerts.find((x) => x.id === tr.dataset.id);
@@ -702,6 +846,7 @@
         <div class="pb__foot">
           <button class="mini-btn" data-act="run" data-id="${p.id}">▶ 立即执行</button>
           <span class="td-dim" style="font-size:12px">累计执行 ${p.runCount} 次</span>
+          <button class="mini-btn mini-btn--danger" data-del="${p.id}" title="删除剧本" style="margin-left:auto">🗑</button>
         </div>`;
       el.querySelector(".pb__name").textContent = p.name;
       el.querySelector(".pb__trigger").textContent = p.trigger;
@@ -734,7 +879,84 @@
     toast(`剧本「${p.name}」已${p.enabled ? "启用" : "停用"}`, p.enabled ? "ok" : "info");
   });
 
+  /* ── 剧本创建 / 删除 ──────────────────────── */
+  function formModal({ title, fields, okText }) {
+    return new Promise((resolve) => {
+      const root = $("#modalRoot");
+      root.innerHTML = `
+        <div class="modal-mask" role="dialog" aria-modal="true">
+          <div class="modal">
+            <h3></h3>
+            <div class="settings-form" style="margin-top:16px">
+              ${fields.map((f) => `<div class="field"><label>${f.label}</label><input id="fm_${f.id}" maxlength="${f.max || 60}" placeholder="${f.ph || ""}" /></div>`).join("")}
+            </div>
+            <div class="modal__actions">
+              <button class="btn btn--ghost" data-act="cancel">取消</button>
+              <button class="btn btn--primary" data-act="ok">${okText}</button>
+            </div>
+          </div>
+        </div>`;
+      const mask = root.firstElementChild;
+      mask.querySelector("h3").textContent = title;
+      const done = (v) => { root.innerHTML = ""; resolve(v); };
+      mask.addEventListener("click", (e) => {
+        if (e.target === mask || e.target.dataset.act === "cancel") done(null);
+        if (e.target.dataset.act === "ok") {
+          const vals = {};
+          for (const f of fields) vals[f.id] = mask.querySelector("#fm_" + f.id).value.trim();
+          done(vals);
+        }
+      });
+      mask.querySelector("input")?.focus();
+    });
+  }
+  $("#newPbBtn").addEventListener("click", async () => {
+    const vals = await formModal({
+      title: "新建处置剧本",
+      okText: "创建",
+      fields: [
+        { id: "name", label: "剧本名称", max: 40, ph: "例如:勒索软件隔离" },
+        { id: "trigger", label: "触发条件", max: 120, ph: "例如:检测到加密行为特征" },
+        { id: "action", label: "执行动作", max: 120, ph: "例如:进程冻结 + 通知值班" },
+      ],
+    });
+    if (!vals) return;
+    if (!vals.name || !vals.trigger || !vals.action) return toast("名称、触发条件与动作均不能为空", "warn");
+    if (mode === "api") {
+      const res = await apiCall("POST", "api/playbooks", vals);
+      if (!res) return;
+      state.playbooks = res.playbooks;
+      if (res.feed) pushFeedEntry(res.feed);
+    } else {
+      const id = "PB-C" + String(state.playbooks.filter((p) => p.id.startsWith("PB-C")).length + 1).padStart(2, "0");
+      state.playbooks.push({ id, name: vals.name, trigger: vals.trigger, action: vals.action, enabled: true, runCount: 0, lastRun: 0 });
+      pushFeed("ok", `新建处置剧本「${vals.name}」`);
+      save.playbooks();
+    }
+    renderPlaybooks(); renderKpis();
+    toast(`剧本「${vals.name}」已创建并启用`);
+  });
   $("#pbGrid").addEventListener("click", async (e) => {
+    const del = e.target.closest("button[data-del]");
+    if (del) {
+      const p = state.playbooks.find((x) => x.id === del.dataset.del);
+      if (!p) return;
+      const ok = await confirmModal({ title: "删除剧本", body: `确定删除剧本「${p.name}」?该操作不可撤销。`, okText: "删除", danger: true });
+      if (!ok) return;
+      if (mode === "api") {
+        const res = await apiCall("DELETE", `api/playbooks/${p.id}`);
+        if (!res) return;
+        state.playbooks = res.playbooks;
+        if (res.feed) pushFeedEntry(res.feed);
+      } else {
+        state.playbooks = state.playbooks.filter((x) => x.id !== p.id);
+        pushFeed("warn", `删除处置剧本「${p.name}」`);
+        save.playbooks();
+      }
+      renderPlaybooks(); renderKpis();
+      toast(`剧本「${p.name}」已删除`, "info");
+      return;
+    }
     const btn = e.target.closest("button[data-act='run']");
     if (!btn) return;
     const p = state.playbooks.find((x) => x.id === btn.dataset.id);
@@ -981,18 +1203,42 @@
         <div class="chain__step"><b>情报比对</b>与 200+ 威胁情报源实时碰撞命中</div>
         <div class="chain__step"><b>自动分级</b>引擎评定等级为「${LEVEL_NAME[a.level]}」并聚合降噪</div>
         <div class="chain__step"><b>当前状态</b>${a.status} · 等待${a.status === "待处置" ? "人工处置" : "持续观察"}</div>
+      </div>
+      <div class="field" style="margin-top:20px">
+        <label for="drawerNote">分析师备注</label>
+        <textarea id="drawerNote" rows="3" maxlength="500" placeholder="记录研判结论、关联事件或后续计划…"
+          style="width:100%;padding:11px 14px;border-radius:10px;background:rgba(255,255,255,0.05);border:1px solid var(--border-soft);color:var(--text);font-family:var(--font);font-size:13px;resize:vertical"></textarea>
+        <div style="display:flex;justify-content:flex-end;margin-top:8px">
+          <button class="mini-btn" id="saveNote" data-id="${a.id}">保存备注</button>
+        </div>
       </div>`;
     const dd = $("#drawerBody").querySelectorAll("dd");
     dd[1].textContent = a.type;
     dd[3].textContent = a.src;
     dd[4].textContent = a.asset;
     $("#drawerBody").querySelector(".drawer__desc").textContent = a.desc;
+    $("#drawerNote").value = a.note || "";
     $("#drawerFoot").innerHTML = ops.length
       ? ops.map(([label, act, cls]) => `<button class="mini-btn mini-btn--${cls || "default"}" data-act="${act}" data-id="${a.id}">${label}</button>`).join("")
       : '<span class="td-dim">该告警已完结,无可用操作。</span>';
     drawer.classList.add("open");
     drawer.setAttribute("aria-hidden", "false");
   }
+  $("#drawerBody").addEventListener("click", async (e) => {
+    if (e.target.id !== "saveNote") return;
+    const id = e.target.dataset.id;
+    const a = state.alerts.find((x) => x.id === id);
+    if (!a) return;
+    const note = $("#drawerNote").value.trim();
+    if (mode === "api") {
+      const res = await apiCall("POST", `api/alerts/${id}/note`, { note });
+      if (!res) return;
+      Object.assign(a, res.alert);
+    } else {
+      a.note = note; save.alerts();
+    }
+    toast("备注已保存");
+  });
   function closeDrawer() {
     drawer.classList.remove("open");
     drawer.setAttribute("aria-hidden", "true");
@@ -1265,15 +1511,90 @@ ${pending.map((a) => `- [ ] ${a.id}(${LEVEL_NAME[a.level]})${a.type} → ${a.ass
     toast("周报已生成并下载(Markdown 格式)");
   });
 
-  /* ── 键盘快捷键(1-6 切换视图)─────────────── */
+  /* ── 键盘快捷键(1-6 切换视图,? 帮助)──────── */
   const VIEW_ORDER = ["overview", "alerts", "assets", "playbooks", "reports", "settings"];
   document.addEventListener("keydown", (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const tag = document.activeElement?.tagName;
     if (["INPUT", "TEXTAREA", "SELECT"].includes(tag)) return;
+    if (e.key === "?") { showHelp(); return; }
     const idx = parseInt(e.key, 10);
     if (idx >= 1 && idx <= VIEW_ORDER.length) switchView(VIEW_ORDER[idx - 1]);
   });
+
+  /* ── 登录历史 ─────────────────────────────── */
+  async function loadLogins() {
+    const box = $("#loginList");
+    if (!box) return;
+    let rows;
+    if (mode === "api") {
+      try { rows = (await API.call("GET", "api/auth/logins")).logins; }
+      catch { box.innerHTML = '<p class="blocklist__empty">登录历史加载失败</p>'; return; }
+    } else {
+      rows = [{ ts: Date.now(), ip: "本机", ua: "浏览器演示会话" }];
+    }
+    box.innerHTML = "";
+    for (const l of rows) {
+      const row = document.createElement("div");
+      row.className = "blocklist__row";
+      row.style.borderColor = "var(--border-soft)";
+      row.style.background = "rgba(255,255,255,0.03)";
+      row.innerHTML = `<span class="td-mono">${fmtFull(l.ts)}</span><span class="dim"></span><span class="td-mono" style="margin-left:auto">${l.ip}</span>`;
+      row.querySelector(".dim").textContent = (l.ua || "").slice(0, 60) || "未知设备";
+      box.appendChild(row);
+    }
+  }
+
+  /* ── 备份导入 ─────────────────────────────── */
+  $("#importBtn").addEventListener("click", () => $("#importFile").click());
+  $("#importFile").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    let data;
+    try { data = JSON.parse(await file.text()); }
+    catch { return toast("文件不是有效的 JSON", "warn"); }
+    const ok = await confirmModal({
+      title: "导入备份",
+      body: `将用备份中的 ${ (data.alerts || []).length } 条告警、${ (data.assets || []).length } 个资产覆盖当前数据,此操作不可撤销。确认导入?`,
+      okText: "覆盖导入", danger: true,
+    });
+    if (!ok) return;
+    if (mode === "api") {
+      const res = await apiCall("POST", "api/import", data);
+      if (!res) return;
+      state.alerts = res.alerts; state.assets = res.assets; state.playbooks = res.playbooks;
+      if (res.feed) pushFeedEntry(res.feed);
+    } else {
+      if (!Array.isArray(data.alerts) || !Array.isArray(data.assets) || !Array.isArray(data.playbooks))
+        return toast("备份文件格式不正确", "warn");
+      state.alerts = data.alerts; state.assets = data.assets; state.playbooks = data.playbooks;
+      save.alerts(); save.assets(); save.playbooks();
+      pushFeed("warn", "导入了本地数据备份");
+    }
+    renderAlerts(); renderAssets(); renderPlaybooks(); renderKpis(); drawCharts();
+    toast("备份导入完成");
+  });
+
+  /* ── 快捷键帮助(?)────────────────────────── */
+  function showHelp() {
+    const root = $("#modalRoot");
+    root.innerHTML = `
+      <div class="modal-mask" role="dialog" aria-modal="true">
+        <div class="modal">
+          <h3>键盘快捷键</h3>
+          <div class="chain" style="margin-top:16px">
+            <div class="chain__step"><b>1 – 6</b>切换视图:总览 / 告警 / 资产 / 剧本 / 报表 / 设置</div>
+            <div class="chain__step"><b>?</b>打开本帮助面板</div>
+            <div class="chain__step"><b>Esc</b>关闭抽屉与弹窗</div>
+          </div>
+          <div class="modal__actions"><button class="btn btn--primary" data-act="close">知道了</button></div>
+        </div>
+      </div>`;
+    const mask = root.firstElementChild;
+    const done = () => { root.innerHTML = ""; };
+    mask.addEventListener("click", (e) => { if (e.target === mask || e.target.dataset.act === "close") done(); });
+  }
 
   /* ── 退出登录 ─────────────────────────────── */
   $("#logoutBtn").addEventListener("click", async () => {

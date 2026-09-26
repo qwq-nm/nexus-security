@@ -525,3 +525,14 @@ table.dt tbody tr:hover { background: rgba(56, 225, 255, 0.05); }
 @media (max-width: 1080px) {
   .grid-bottom { grid-template-columns: 1fr; }
 }
+
+/* ── 批量操作条与 24h 分布 ────────────────── */
+.batchbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 14px; margin-bottom: 12px;
+  border-radius: 12px; font-size: 13.5px;
+  background: rgba(56, 225, 255, 0.06); border: 1px solid rgba(56, 225, 255, 0.35);
+}
+.batchbar b { color: var(--accent); }
+#hourChart { display: block; margin-bottom: 12px; opacity: 0.95; }
+#healthGauge { display: block; }

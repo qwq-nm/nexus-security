@@ -10,6 +10,7 @@
 "use strict";
 
 const express = require("express");
+const compression = require("compression");
 const path = require("node:path");
 const store = require("./db");
 
@@ -18,6 +19,13 @@ const PORT = process.env.PORT || 3000;
 const COOKIE = "nexus_session";
 
 app.disable("x-powered-by");
+// gzip 压缩(SSE 流除外,否则事件会被缓冲导致实时通道卡死)
+app.use(compression({
+  filter: (req, res) => {
+    if (req.path === "/api/stream") return false;
+    return compression.filter(req, res);
+  },
+}));
 app.use(express.json({ limit: "32kb" }));
 
 /* ── 安全响应头 ───────────────────────────── */
@@ -152,8 +160,14 @@ app.post("/api/auth/login", (req, res) => {
   const user = store.getUserByEmail(String(email || "").trim().toLowerCase());
   if (!user || !store.verifyPassword(String(password || ""), user.pass))
     return res.status(401).json({ error: "邮箱或密码不正确。" });
+  store.recordLogin(user.id, req.socket.remoteAddress, req.headers["user-agent"]);
   setSessionCookie(res, store.createSession(user.id));
   res.json({ ok: true, user: store.publicUser(user) });
+});
+
+/* ── 登录历史 ─────────────────────────────── */
+app.get("/api/auth/logins", requireUser, (req, res) => {
+  res.json({ logins: store.getLogins(req.user.id, 5) });
 });
 
 app.post("/api/auth/logout", (req, res) => {
@@ -382,6 +396,80 @@ app.put("/api/auth/profile", requireUser, (req, res) => {
   res.json({ ok: true, user: store.publicUser(updated) });
 });
 
+/* ── 批量处置 ─────────────────────────────── */
+app.post("/api/alerts/batch", requireUser, (req, res) => {
+  const uid = req.user.id;
+  const { action, ids } = req.body || {};
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: "未选择任何告警。" });
+  const map = { resolve: ["已解决", "ok"], ignore: ["已忽略", "warn"] };
+  if (!map[action]) return res.status(400).json({ error: "批量操作仅支持:标记解决 / 忽略。" });
+  const [status, level] = map[action];
+  const stmt = store.db.prepare("UPDATE alerts SET status = ?, handled_by = ? WHERE user_id = ? AND id = ?");
+  let n = 0;
+  for (const id of ids.slice(0, 100)) {
+    if (store.getAlert(uid, id)) { stmt.run(status, req.user.name, uid, id); n++; }
+  }
+  const actName = action === "resolve" ? "标记解决" : "忽略";
+  const feed = store.appendFeed(uid, level, `${req.user.name} 批量${actName}了 ${n} 条告警`);
+  ssePush(uid, feed);
+  res.json({ ok: true, count: n, feed, alerts: store.getAlerts(uid) });
+});
+
+/* ── 告警备注 ─────────────────────────────── */
+app.post("/api/alerts/:id/note", requireUser, (req, res) => {
+  const uid = req.user.id;
+  const a = store.getAlert(uid, req.params.id);
+  if (!a) return res.status(404).json({ error: "告警不存在。" });
+  const note = String((req.body || {}).note || "").slice(0, 500);
+  store.db.prepare("UPDATE alerts SET note = ? WHERE user_id = ? AND id = ?").run(note, uid, a.id);
+  res.json({ ok: true, alert: store.alertJson(store.getAlert(uid, a.id)) });
+});
+
+/* ── 剧本创建 / 删除 ──────────────────────── */
+app.post("/api/playbooks", requireUser, (req, res) => {
+  const uid = req.user.id;
+  const { name, trigger, action } = req.body || {};
+  if (!String(name || "").trim() || !String(trigger || "").trim() || !String(action || "").trim())
+    return res.status(400).json({ error: "名称、触发条件与执行动作均不能为空。" });
+  const id = store.insertPlaybook(uid, {
+    name: String(name).trim().slice(0, 40),
+    trigger: String(trigger).trim().slice(0, 120),
+    action: String(action).trim().slice(0, 120),
+  });
+  const feed = store.appendFeed(uid, "ok", `新建处置剧本「${String(name).trim()}」`);
+  ssePush(uid, feed);
+  res.json({ ok: true, feed, playbooks: store.getPlaybooks(uid) });
+});
+app.delete("/api/playbooks/:id", requireUser, (req, res) => {
+  const uid = req.user.id;
+  const p = store.getPlaybook(uid, req.params.id);
+  if (!p) return res.status(404).json({ error: "剧本不存在。" });
+  store.deletePlaybook(uid, p.id);
+  const feed = store.appendFeed(uid, "warn", `删除处置剧本「${p.name}」`);
+  ssePush(uid, feed);
+  res.json({ ok: true, feed, playbooks: store.getPlaybooks(uid) });
+});
+
+/* ── 备份导入 ─────────────────────────────── */
+app.post("/api/import", requireUser, (req, res) => {
+  const uid = req.user.id;
+  const d = req.body || {};
+  const okArr = Array.isArray;
+  if (!okArr(d.alerts) || !okArr(d.assets) || !okArr(d.playbooks))
+    return res.status(400).json({ error: "备份文件格式不正确(缺少 alerts/assets/playbooks)。" });
+  for (const a of d.alerts) {
+    if (!a.id || !a.level || !a.type || !a.status) return res.status(400).json({ error: "备份中的告警数据不完整。" });
+  }
+  try {
+    store.replaceUserData(uid, { alerts: d.alerts, assets: d.assets, playbooks: d.playbooks });
+  } catch {
+    return res.status(400).json({ error: "备份导入失败:数据无法写入。" });
+  }
+  const feed = store.appendFeed(uid, "warn", `${req.user.name} 导入了数据备份(${d.alerts.length} 条告警)`);
+  ssePush(uid, feed);
+  res.json({ ok: true, feed, alerts: store.getAlerts(uid), assets: store.getAssets(uid), playbooks: store.getPlaybooks(uid) });
+});
+
 /* ── 演示账号(启动时确保存在)────────────── */
 function ensureDemoUser() {
   const email = "demo@nexus.sec";
@@ -403,7 +491,12 @@ app.use(express.static(path.join(__dirname, ".."), { index: "index.html", maxAge
   if (file.endsWith(".html")) res.setHeader("Cache-Control", "no-cache");
 } }));
 
-app.use((req, res) => res.status(404).end("Not Found"));
+app.use((req, res) => {
+  if (req.method === "GET" && !req.path.startsWith("/api") && req.accepts("html")) {
+    return res.status(404).sendFile(path.join(__dirname, "..", "404.html"));
+  }
+  res.status(404).end("Not Found");
+});
 // 统一错误处理(避免泄漏堆栈)
 app.use((err, req, res, next) => {
   console.error(err);

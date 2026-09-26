@@ -85,6 +85,19 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_feed_user ON feed(user_id, id);
 `);
 
+// 老库迁移:告警备注列
+try { db.exec("ALTER TABLE alerts ADD COLUMN note TEXT DEFAULT ''"); } catch {}
+db.exec(`
+  CREATE TABLE IF NOT EXISTS logins (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id  INTEGER NOT NULL,
+    ts       INTEGER NOT NULL,
+    ip       TEXT NOT NULL,
+    ua       TEXT DEFAULT ''
+  );
+  CREATE INDEX IF NOT EXISTS idx_logins_user ON logins(user_id, id);
+`);
+
 /* ── 口令散列:scrypt + 每用户随机盐 ───────── */
 function hashPassword(pw) {
   const salt = crypto.randomBytes(16).toString("hex");
@@ -250,11 +263,14 @@ function seedUserData(userId) {
 /* ── 数据读取(输出与前端演示模式同形)────── */
 function getAlerts(userId) {
   return db.prepare("SELECT * FROM alerts WHERE user_id = ? ORDER BY ts DESC").all(userId)
-    .map((r) => ({ id: r.id, level: r.level, type: r.type, src: r.src, asset: r.asset, desc: r.desc, status: r.status, ts: r.ts, handledBy: r.handled_by }));
+    .map((r) => ({ id: r.id, level: r.level, type: r.type, src: r.src, asset: r.asset, desc: r.desc, status: r.status, ts: r.ts, handledBy: r.handled_by, note: r.note || "" }));
 }
 function getAlert(userId, id) {
   const r = db.prepare("SELECT * FROM alerts WHERE user_id = ? AND id = ?").get(userId, id);
   return r || null;
+}
+function alertJson(r) {
+  return { id: r.id, level: r.level, type: r.type, src: r.src, asset: r.asset, desc: r.desc, status: r.status, ts: r.ts, handledBy: r.handled_by, note: r.note || "" };
 }
 function alertCount(userId) {
   return db.prepare("SELECT COUNT(*) AS c FROM alerts WHERE user_id = ?").get(userId).c;
@@ -347,10 +363,52 @@ function seedTrendOnly(userId) {
   }
 }
 
+/* ── 登录历史 ─────────────────────────────── */
+function recordLogin(userId, ip, ua) {
+  db.prepare("INSERT INTO logins (user_id, ts, ip, ua) VALUES (?, ?, ?, ?)").run(userId, Date.now(), ip || "-", String(ua || "").slice(0, 180));
+}
+function getLogins(userId, limit = 5) {
+  return db.prepare("SELECT ts, ip, ua FROM logins WHERE user_id = ? ORDER BY id DESC LIMIT ?").all(userId, limit);
+}
+
+/* ── 自定义剧本 ───────────────────────────── */
+function insertPlaybook(userId, { name, trigger, action }) {
+  const customCount = db.prepare("SELECT COUNT(*) AS c FROM playbooks WHERE user_id = ? AND id LIKE 'PB-C%'").get(userId).c;
+  const id = "PB-C" + String(customCount + 1).padStart(2, "0");
+  db.prepare("INSERT INTO playbooks (id, user_id, name, trigger, action, enabled, run_count, last_run) VALUES (?, ?, ?, ?, ?, 1, 0, 0)")
+    .run(id, userId, name, trigger, action);
+  return id;
+}
+function deletePlaybook(userId, id) {
+  db.prepare("DELETE FROM playbooks WHERE user_id = ? AND id = ?").run(userId, id);
+}
+
+/* ── 备份导入(整表替换)───────────────────── */
+function replaceUserData(userId, { alerts, assets, playbooks }) {
+  db.exec("BEGIN");
+  try {
+    db.prepare("DELETE FROM alerts WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM assets WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM playbooks WHERE user_id = ?").run(userId);
+    const ia = db.prepare("INSERT INTO alerts (id, user_id, level, type, src, asset, desc, status, ts, handled_by, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const a of alerts) ia.run(a.id, userId, a.level, a.type, a.src, a.asset, a.desc, a.status, a.ts, a.handledBy || "", a.note || "");
+    const is = db.prepare("INSERT INTO assets (id, user_id, name, type, ip, os, exposure, risk, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const a of assets) is.run(a.id, userId, a.name, a.type, a.ip, a.os, a.exposure, a.risk, a.status);
+    const ip = db.prepare("INSERT INTO playbooks (id, user_id, name, trigger, action, enabled, run_count, last_run) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    for (const p of playbooks) ip.run(p.id, userId, p.name, p.trigger, p.action, p.enabled ? 1 : 0, p.runCount || 0, p.lastRun || 0);
+    db.exec("COMMIT");
+    return true;
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+}
+
 module.exports = {
   db, hashPassword, verifyPassword,
   createUser, getUserByEmail, getUserById, publicUser, updateProfile,
   createSession, getUserByToken, deleteSession, purgeExpiredSessions, migrateTrends,
-  seedUserData, getAlerts, getAlert, alertCount, insertAlert, simulateAlert, getAssets, getAsset,
-  getPlaybooks, getPlaybook, getTrend, getFeed, appendFeed,
+  seedUserData, getAlerts, getAlert, alertJson, alertCount, insertAlert, simulateAlert, getAssets, getAsset,
+  getPlaybooks, getPlaybook, insertPlaybook, deletePlaybook, getTrend, getFeed, appendFeed,
+  recordLogin, getLogins, replaceUserData,
 };
