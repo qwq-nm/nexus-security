@@ -156,7 +156,10 @@
                   <button class="mini-btn" data-days="30">30 日</button>
                 </div>
               </div>
-              <canvas id="trendChart" aria-label="告警趋势图"></canvas>
+              <div style="position:relative">
+                <canvas id="trendChart" aria-label="告警趋势图"></canvas>
+                <div class="chart-tip" id="trendTip" hidden></div>
+              </div>
             </div>
             <div class="card">
               <div class="card__head">
@@ -280,6 +283,13 @@
         <!-- ════ 报表中心 ════ -->
         <section class="view" data-view="reports">
           <div class="report-grid">
+            <div class="card">
+              <div class="card__head">
+                <p class="card__title">本周 vs 上周</p>
+                <p class="card__hint">按告警总量对比</p>
+              </div>
+              <div id="weekCompare"></div>
+            </div>
             <div class="card">
               <div class="card__head">
                 <p class="card__title">合规基线达标率</p>
@@ -482,7 +492,7 @@
 
   <script src="js/backend.js?v=3"></script>
   <script src="js/auth.js?v=4"></script>
-  <script src="js/dashboard.js?v=24"></script>
+  <script src="js/dashboard.js?v=26"></script>
 <script>if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(function(){});</script>
 </body>
 </html>

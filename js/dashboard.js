@@ -346,6 +346,7 @@
   /* 趋势范围(7/14/30 日) */
   let trendRange = 7;
   const trendView = () => state.trend.slice(-trendRange);
+  let trendLayout = null;
   $("#trendRange").addEventListener("click", (e) => {
     const btn = e.target.closest("button[data-days]");
     if (!btn) return;
@@ -354,6 +355,25 @@
     $("#typeRangeHint").textContent = `近 ${trendRange} 日`;
     drawCharts();
   });
+
+  // 悬停数据提示
+  const tipEl = () => $("#trendTip");
+  function trendTipHandler(e) {
+    const data = trendView();
+    const tip = tipEl();
+    if (!data.length || !trendLayout || !tip) return;
+    const rect = $("#trendChart").getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const { padL, padR, iw } = trendLayout;
+    const idx = Math.round(((mx - padL) / iw) * (data.length - 1));
+    if (idx < 0 || idx >= data.length) { tip.hidden = true; return; }
+    const d = data[idx];
+    tip.innerHTML = `<b>${d.day}</b> 新增 ${d.alerts} · 拦截 ${d.blocked}`;
+    tip.hidden = false;
+    const x = Math.min(Math.max(padL + (iw * idx) / Math.max(data.length - 1, 1), 70), rect.width - 90);
+    tip.style.left = x - 60 + "px";
+    tip.style.top = "8px";
+  }
 
   function drawTrend() {
     const { ctx, w, h } = setupCanvas($("#trendChart"));
@@ -380,6 +400,7 @@
       const x = Math.min(X(i), w - 34); // 防止最后一个标签溢出
       ctx.fillText(d.day, x - 11, h - 8);
     });
+    trendLayout = { padL, padR, iw };
 
     const area = ctx.createLinearGradient(0, padT, 0, padT + ih);
     area.addColorStop(0, "rgba(56, 225, 255, 0.30)");
@@ -451,6 +472,8 @@
   }
 
   function drawCharts() { drawTrend(); drawType(); }
+  $("#trendChart").addEventListener("mousemove", trendTipHandler);
+  $("#trendChart").addEventListener("mouseleave", () => { const t = tipEl(); if (t) t.hidden = true; });
 
   /* ── 攻击雷达 ─────────────────────────────── */
   const radarBlips = [];
@@ -1269,6 +1292,25 @@
       list.appendChild(a);
     }
 
+    // 本周 vs 上周
+    const wc = $("#weekCompare");
+    if (wc && state.trend.length >= 14) {
+      const last7 = state.trend.slice(-7).reduce((s, d) => s + d.alerts, 0);
+      const prev7 = state.trend.slice(-14, -7).reduce((s, d) => s + d.alerts, 0);
+      const delta = prev7 ? Math.round(((last7 - prev7) / prev7) * 100) : 0;
+      const up = delta >= 0;
+      wc.innerHTML = `
+        <div style="display:flex;align-items:baseline;gap:14px">
+          <b style="font-size:38px;font-weight:800">${last7.toLocaleString()}</b>
+          <span class="tag ${up ? "tag--crit" : "tag--ok"}" style="font-size:13px">${up ? "▲" : "▼"} ${Math.abs(delta)}%</span>
+        </div>
+        <p class="pb__meta" style="margin-top:8px">本周新增告警总量 · 上周 ${prev7.toLocaleString()} 条</p>
+        <div style="display:flex;align-items:flex-end;gap:6px;margin-top:14px;height:56px">
+          ${state.trend.slice(-14).map((d) => `<div title="${d.day}: ${d.alerts}" style="flex:1;height:${Math.max(8, Math.round((d.alerts / Math.max(...state.trend.slice(-14).map((x) => x.alerts))) * 52))}px;background:linear-gradient(180deg,rgba(56,225,255,0.75),rgba(56,225,255,0.2));border-radius:3px 3px 0 0"></div>`).join("")}
+        </div>
+        <p class="pb__meta" style="margin-top:6px;text-align:center">近 14 天逐日对比</p>`;
+    }
+
     // 近 30 天活跃热力图
     const heat = $("#heatmap");
     heat.innerHTML = "";
@@ -1294,8 +1336,29 @@
     const badge = $("#bellBadge");
     badge.textContent = unread > 99 ? "99+" : String(unread);
     badge.hidden = unread === 0;
-    // 浏览器标签页标题未读提示
+    // 浏览器标签页标题 + favicon 未读红点
     document.title = unread > 0 ? `(${unread}) 安全运营控制台 · NEXUS` : "安全运营控制台 · NEXUS";
+    try {
+      const cv = document.createElement("canvas");
+      cv.width = 64; cv.height = 64;
+      const c = cv.getContext("2d");
+      c.fillStyle = "#030408";
+      c.beginPath(); c.roundRect ? c.roundRect(0, 0, 64, 64, 14) : c.rect(0, 0, 64, 64); c.fill();
+      c.strokeStyle = "#38e1ff"; c.lineWidth = 5;
+      c.beginPath();
+      c.moveTo(32, 12); c.lineTo(50, 20); c.lineTo(50, 32);
+      c.bezierCurveTo(50, 44, 41, 52, 32, 56);
+      c.bezierCurveTo(23, 52, 14, 44, 14, 32);
+      c.lineTo(14, 20); c.closePath(); c.stroke();
+      if (unread > 0) {
+        c.fillStyle = "#f87171";
+        c.beginPath(); c.arc(50, 16, 12, 0, Math.PI * 2); c.fill();
+        c.fillStyle = "#fff"; c.font = "700 15px sans-serif"; c.textAlign = "center";
+        c.fillText(unread > 9 ? "9+" : String(unread), 50, 21);
+      }
+      let link = document.querySelector('link[rel="icon"]');
+      if (link) link.href = cv.toDataURL("image/png");
+    } catch {}
   }
   function renderNotifList() {
     const list = $("#notifList");
