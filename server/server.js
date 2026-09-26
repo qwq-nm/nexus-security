@@ -399,6 +399,18 @@ app.get("/api/presence", requireUser, (req, res) => {
   res.json({ total: online.length, online, totalUsers });
 });
 
+/* ── 团队成员(演示:本组织全部账号)──────── */
+app.get("/api/team", requireUser, (req, res) => {
+  const users = store.db.prepare("SELECT id, name, company, created_at FROM users ORDER BY created_at").all();
+  const members = users.map((u) => ({
+    name: u.name,
+    company: u.company,
+    createdAt: u.created_at,
+    online: (sseClients.get(u.id)?.size || 0) > 0,
+  }));
+  res.json({ members, online: members.filter((m) => m.online).length });
+});
+
 /* ── 资料编辑 ─────────────────────────────── */
 app.put("/api/auth/profile", requireUser, (req, res) => {
   const { name, company } = req.body || {};

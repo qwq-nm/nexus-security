@@ -19,6 +19,45 @@
     return p && /^[\w./-]+\.html$/.test(p) ? p : "dashboard.html"; // 仅允许站内相对路径
   };
 
+  /* ── 登录/注册页星空背景 ──────────────────── */
+  const bgCanvas = document.getElementById("authBg");
+  if (bgCanvas && bgCanvas.getContext) {
+    const ctx = bgCanvas.getContext("2d");
+    const DPR = Math.min(window.devicePixelRatio || 1, 2);
+    let W, H;
+    const stars = Array.from({ length: 130 }, () => ({
+      x: Math.random(), y: Math.random(),
+      r: 0.4 + Math.random() * 1.1,
+      tw: Math.random() * Math.PI * 2,
+      spd: 0.3 + Math.random(),
+    }));
+    const resize = () => {
+      W = innerWidth; H = innerHeight;
+      bgCanvas.width = W * DPR; bgCanvas.height = H * DPR;
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    };
+    resize();
+    addEventListener("resize", resize);
+    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let t0 = performance.now();
+    (function frame(t) {
+      const dt = Math.min((t - t0) / 1000, 0.05);
+      t0 = t;
+      ctx.clearRect(0, 0, W, H);
+      for (const s of stars) {
+        s.tw += dt * s.spd;
+        s.y += dt * 0.004; // 缓慢下坠
+        if (s.y > 1) s.y = 0;
+        const a = 0.1 + Math.abs(Math.sin(s.tw)) * 0.45;
+        ctx.fillStyle = `rgba(200, 220, 245, ${a.toFixed(3)})`;
+        ctx.beginPath();
+        ctx.arc(s.x * W, s.y * H, s.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (!reduced) requestAnimationFrame(frame);
+    })(t0);
+  }
+
   const showErr = (el, msg) => { el.textContent = msg; el.classList.add("show"); };
   const hideErr = (el) => el.classList.remove("show");
   const emailOk = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);

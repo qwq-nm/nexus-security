@@ -623,3 +623,10 @@ th.sortable:hover { color: var(--accent); }
 .heat-cell { height: 34px; border-radius: 6px; cursor: default; transition: transform 0.15s ease; }
 .heat-cell:hover { transform: scale(1.12); }
 @media (max-width: 700px) { .heatmap { grid-template-columns: repeat(10, 1fr); } }
+
+/* ── 认证页星空 ──────────────────────────── */
+.auth__bg { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+.auth { position: relative; z-index: 1; }
+
+/* ── 团队卡片 ────────────────────────────── */
+.team-card__top { display: flex; align-items: center; gap: 12px; }

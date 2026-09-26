@@ -14,7 +14,7 @@
   <meta property="og:site_name" content="NEXUS Security" />
   <meta name="twitter:card" content="summary" />
 <link rel="stylesheet" href="css/style.css?v=3" />
-  <link rel="stylesheet" href="css/app.css?v=7" />
+  <link rel="stylesheet" href="css/app.css?v=8" />
 </head>
 <body class="app" data-page="dashboard">
 
@@ -48,6 +48,10 @@
         <button class="sidebar__item" data-view="reports">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3h9l4 4v14H6V3z"/><path d="M9.5 16.5v-3M12.5 16.5v-6M15.5 16.5v-4.5" stroke-linecap="round"/></svg>
           报表中心
+        </button>
+        <button class="sidebar__item" data-view="team">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="9" cy="8.5" r="3.2"/><path d="M2.8 19c1-3 3.4-4.6 6.2-4.6S14.2 16 15.2 19" stroke-linecap="round"/><circle cx="16.8" cy="9.5" r="2.6"/><path d="M15.6 14.6c2.9-.4 5.2 1.2 6 4" stroke-linecap="round"/></svg>
+          团队
         </button>
         <button class="sidebar__item" data-view="settings">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c1.2-3.4 4-5.2 7.5-5.2S18.3 16.6 19.5 20" stroke-linecap="round"/></svg>
@@ -330,6 +334,16 @@
           </div>
         </section>
 
+        <!-- ════ 团队 ════ -->
+        <section class="view" data-view="team">
+          <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
+            <div class="card kpi"><p class="kpi__label">团队成员</p><p class="kpi__value" id="teamTotal">0</p><p class="kpi__delta down">▲ 全部已启用 MFA</p></div>
+            <div class="card kpi"><p class="kpi__label">当前在线</p><p class="kpi__value" id="teamOnline">0</p><p class="kpi__delta down">▲ 实时统计</p></div>
+            <div class="card kpi"><p class="kpi__label">待处置责任告警</p><p class="kpi__value" id="teamDuty">0</p><p class="kpi__delta">按处置人统计</p></div>
+          </div>
+          <div class="pb-grid" id="teamGrid" style="grid-template-columns:repeat(3,1fr)"></div>
+        </section>
+
         <!-- ════ 账号设置 ════ -->
         <section class="view" data-view="settings">
           <div class="report-grid">
@@ -458,7 +472,7 @@
 
   <script src="js/backend.js?v=3"></script>
   <script src="js/auth.js?v=4"></script>
-  <script src="js/dashboard.js?v=19"></script>
+  <script src="js/dashboard.js?v=20"></script>
 <script>if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(function(){});</script>
 </body>
 </html>

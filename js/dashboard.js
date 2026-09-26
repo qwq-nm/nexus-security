@@ -150,6 +150,7 @@
     assets: ["资产管理", "主机、容器与云资产的暴露面与风险"],
     playbooks: ["处置剧本", "自动化响应规则:触发条件与执行动作"],
     reports: ["报表中心", "合规达标率、风险排行与周报归档"],
+    team: ["团队", "成员、在线状态与责任告警分布"],
     settings: ["账号设置", "管理你的账户与安全凭据"],
   };
   let currentView = "overview";
@@ -166,6 +167,7 @@
     if (name === "assets") renderAssets();
     if (name === "playbooks") renderPlaybooks();
     if (name === "reports") renderReports();
+    if (name === "team") renderTeam();
     if (name === "settings") { renderSettings(); loadLogins(); }
     window.scrollTo(0, 0);
   }
@@ -1615,6 +1617,54 @@
     toast("资产数据已导出为 CSV");
   });
 
+  /* ── 团队视图 ─────────────────────────────── */
+  const DEMO_TEAM = [
+    { name: "演示管理员", company: "NEXUS 演示环境", createdAt: Date.now() - 90 * 86400000, online: true },
+    { name: "林晚风", company: "SOC 值班", createdAt: Date.now() - 60 * 86400000, online: false },
+    { name: "陈拓", company: "威胁情报组", createdAt: Date.now() - 30 * 86400000, online: false },
+  ];
+  async function renderTeam() {
+    let members;
+    if (mode === "api") {
+      try { members = (await API.call("GET", "api/team")).members; }
+      catch { members = []; }
+    } else {
+      members = DEMO_TEAM;
+    }
+    $("#teamTotal").textContent = members.length;
+    $("#teamOnline").textContent = members.filter((m) => m.online).length;
+    const duty = {};
+    for (const a of state.alerts) {
+      if (a.status === "待处置" || a.status === "处理中") {
+        const who = a.handledBy && !a.handledBy.startsWith("剧本") ? a.handledBy : "值班待认领";
+        duty[who] = (duty[who] || 0) + 1;
+      }
+    }
+    $("#teamDuty").textContent = Object.values(duty).reduce((s, n) => s + n, 0);
+
+    const grid = $("#teamGrid");
+    grid.innerHTML = "";
+    for (const m of members) {
+      const el = document.createElement("div");
+      el.className = "card team-card";
+      el.innerHTML = `
+        <div class="team-card__top">
+          <span class="userchip__avatar" style="width:40px;height:40px;font-size:16px"></span>
+          <div>
+            <p class="pb__name" style="margin:0"></p>
+            <p class="pb__meta" style="margin:0"></p>
+          </div>
+          <span class="tag ${m.online ? "tag--ok" : "tag--idle"}" style="margin-left:auto">${m.online ? "在线" : "离线"}</span>
+        </div>
+        <p class="pb__meta" style="margin-top:14px">加入于 ${new Date(m.createdAt).toLocaleDateString("zh-CN")} · 角色:安全分析师</p>
+        <p class="pb__meta">名下待处置:<b style="color:var(--accent)">${duty[m.name] || 0}</b> 条</p>`;
+      el.querySelector(".userchip__avatar").textContent = m.name.trim().charAt(0).toUpperCase();
+      el.querySelector(".pb__name").textContent = m.name;
+      el.querySelector(".pb__meta").textContent = m.company || "安全团队";
+      grid.appendChild(el);
+    }
+  }
+
   /* ── 账号设置 ─────────────────────────────── */
   function renderSettings() {
     $("#settingsMode").textContent = mode === "api" ? "真实后端模式 · 数据存储于 SQLite" : "浏览器演示模式 · 数据存储于 localStorage";
@@ -1753,7 +1803,7 @@ ${pending.map((a) => `- [ ] ${a.id}(${LEVEL_NAME[a.level]})${a.type} → ${a.ass
   });
 
   /* ── 键盘快捷键(1-6 切换视图,? 帮助)──────── */
-  const VIEW_ORDER = ["overview", "alerts", "assets", "playbooks", "reports", "settings"];
+  const VIEW_ORDER = ["overview", "alerts", "assets", "playbooks", "reports", "team", "settings"];
   document.addEventListener("keydown", (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const tag = document.activeElement?.tagName;
@@ -1825,7 +1875,7 @@ ${pending.map((a) => `- [ ] ${a.id}(${LEVEL_NAME[a.level]})${a.type} → ${a.ass
         <div class="modal">
           <h3>键盘快捷键</h3>
           <div class="chain" style="margin-top:16px">
-            <div class="chain__step"><b>1 – 6</b>切换视图:总览 / 告警 / 资产 / 剧本 / 报表 / 设置</div>
+            <div class="chain__step"><b>1 – 7</b>切换视图:总览 / 告警 / 资产 / 剧本 / 报表 / 团队 / 设置</div>
             <div class="chain__step"><b>Ctrl / Cmd + K</b>打开命令面板:快速跳转、搜索告警、执行操作</div>
             <div class="chain__step"><b>?</b>打开本帮助面板</div>
             <div class="chain__step"><b>Esc</b>关闭抽屉与弹窗</div>
