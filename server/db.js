@@ -136,6 +136,16 @@ db.exec(`
     message TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_logs_user ON logs(user_id, id);
+  CREATE TABLE IF NOT EXISTS detection_rules (
+    id      TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    name    TEXT NOT NULL,
+    level   TEXT NOT NULL,
+    type    TEXT NOT NULL,
+    pattern TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  );
 `);
 
 /* ── 口令散列:scrypt + 每用户随机盐 ───────── */
@@ -468,6 +478,25 @@ function getAgentByToken(token) {
   const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
   return db.prepare("SELECT * FROM agents WHERE token_hash = ?").get(tokenHash) || null;
 }
+function customRuleCount(userId) {
+  return db.prepare("SELECT COUNT(*) AS c FROM detection_rules WHERE user_id = ?").get(userId).c;
+}
+function insertCustomRule(userId, r) {
+  const id = "CR-" + String(customRuleCount(userId) + 1).padStart(2, "0") + "-" + Date.now().toString(36).slice(-4);
+  db.prepare("INSERT INTO detection_rules (id, user_id, name, level, type, pattern, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(id, userId, r.name, r.level, r.type, r.pattern, Date.now());
+  return getCustomRule(userId, id);
+}
+function getCustomRule(userId, id) {
+  return db.prepare("SELECT * FROM detection_rules WHERE user_id = ? AND id = ?").get(userId, id) || null;
+}
+function listCustomRules(userId) {
+  return db.prepare("SELECT * FROM detection_rules WHERE user_id = ? ORDER BY created_at").all(userId)
+    .map((r) => ({ id: r.id, name: r.name, level: r.level, type: r.type, pattern: r.pattern }));
+}
+function deleteCustomRule(userId, id) {
+  db.prepare("DELETE FROM detection_rules WHERE user_id = ? AND id = ?").run(userId, id);
+}
 function insertLog(userId, agentId, l) {
   const info = db.prepare("INSERT INTO logs (user_id, agent_id, ts, host, program, message) VALUES (?, ?, ?, ?, ?, ?)")
     .run(userId, agentId, l.ts, l.host, l.program, l.message);
@@ -525,6 +554,7 @@ module.exports = {
   seedUserData, getAlerts, getAlert, alertJson, alertCount, insertAlert, simulateAlert, getAssets, getAsset,
   getPlaybooks, getPlaybook, insertPlaybook, deletePlaybook, getTrend, getFeed, appendFeed,
   createAgent, listAgents, touchAgent, revokeAgent, getAgentByToken, insertLog, trimLogs,
+  insertCustomRule, listCustomRules, deleteCustomRule, getCustomRule, customRuleCount,
   setUserRole, listUsers, recordAudit, getAudit,
   recordLogin, getLogins, replaceUserData,
 };

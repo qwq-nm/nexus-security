@@ -35,14 +35,14 @@ if (!TOKEN) {
   console.error("缺少 --token <采集器Token>(在控制台「设置 → 数据接入」创建)");
   process.exit(1);
 }
-if (!FILE && !GENERATOR) {
-  console.error("请指定 --file <日志文件> 或 --generator(压力生成器)");
+if (!FILE && !GENERATOR && !args.syslog) {
+  console.error("请指定 --file <日志文件> / --generator / --syslog <UDP端口> 之一");
   process.exit(1);
 }
 
 console.log(`NEXUS Agent 已启动 → ${URL_BASE}`);
 console.log(`  主机: ${HOST}`);
-console.log(`  模式: ${GENERATOR ? "压力生成器" : "tail " + FILE}`);
+console.log(`  模式: ${GENERATOR ? "压力生成器" : args.syslog ? "syslog UDP :" + args.syslog : "tail " + FILE}`);
 
 /* ── 批量上报 ─────────────────────────────── */
 const queue = [];
@@ -162,7 +162,30 @@ function generator() {
 }
 
 if (GENERATOR) generator();
+else if (args.syslog) syslogListen(parseInt(args.syslog, 10) || 5514);
 else tailFile(FILE);
+
+/* ── 模式三:Syslog 网络监听(UDP,RFC3164 粗解析)─ */
+function syslogListen(port) {
+  const dgram = require("node:dgram");
+  const sock = dgram.createSocket("udp4");
+  sock.on("message", (buf) => {
+    const line = buf.toString("utf8").trim();
+    if (!line) return;
+    // RFC3164:<PRI>Mmm dd hh:mm:ss host program[pid]: msg
+    const m = line.match(/^<(\d+)>(\w{3}\s+\d+\s[\d:]+)\s+(\S+)\s+([^:\[\s]+)(?:\[\d+\])?:\s*(.*)$/);
+    if (m) {
+      const pri = parseInt(m[1], 10);
+      push(m[4], m[5] || line);
+    } else {
+      push("syslog", line);
+    }
+  });
+  sock.on("listening", () => console.log(`  syslog UDP 监听 :${port}(收到即转发到平台)`));
+  sock.on("error", (e) => { console.error("  syslog 监听失败:", e.message); process.exit(1); });
+  sock.bind(port);
+  console.log(`  其他设备可执行:logger -n <本机IP> -P ${port} -d "测试消息"`);
+}
 
 /* ── 优雅退出:冲刷队列 ────────────────────── */
 process.on("SIGINT", () => {

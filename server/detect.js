@@ -73,10 +73,23 @@ function seenRecently(userId, ruleKey, src) {
  * 对一批新接入的日志执行检测
  * @returns {Array} 生成的告警对象(未入库,由调用方入库)
  */
-function detectLogs(userId, logs) {
+const customReCache = new Map();
+function compileCustom(r) {
+  const key = `${r.id}|${r.pattern}`;
+  if (!customReCache.has(key)) {
+    try { customReCache.set(key, new RegExp(r.pattern, "i")); }
+    catch { customReCache.set(key, null); }
+    if (customReCache.size > 200) customReCache.clear();
+  }
+  return customReCache.get(key);
+}
+
+function detectLogs(userId, logs, customRules = []) {
   const out = [];
   for (const log of logs) {
     const msg = String(log.message || "");
+    // 匹配输入 = 程序名 + 消息(syslog 解析后 sshd/CRON 等在 program 字段)
+    const matchText = (log.program ? log.program + " " : "") + msg;
     const src = extractIp(msg);
     const excerpt = msg.slice(0, 300);
 
@@ -91,7 +104,7 @@ function detectLogs(userId, logs) {
         }
         continue;
       }
-      if (!rule.re.test(msg)) continue;
+      if (!rule.re.test(matchText)) continue;
       if (seenRecently(userId, rule.key, src)) continue;
       out.push({
         level: rule.level, type: rule.type, src, asset: log.host || "未知主机",
@@ -99,9 +112,20 @@ function detectLogs(userId, logs) {
       });
     }
 
+    // 用户自定义规则
+    for (const cr of customRules) {
+      const re = compileCustom(cr);
+      if (!re || !re.test(matchText)) continue;
+      if (seenRecently(userId, "custom-" + cr.id, src)) continue;
+      out.push({
+        level: cr.level, type: cr.type, src, asset: log.host || "未知主机",
+        desc: `[自定义规则:${cr.name}] ${excerpt}`, ruleId: cr.id, logExcerpt: excerpt,
+      });
+    }
+
     // 聚合规则:暴力破解
     for (const agg of AGG_RULES) {
-      if (!RULES.find((r) => r.key === agg.base).re.test(msg)) continue;
+      if (!RULES.find((r) => r.key === agg.base).re.test(matchText)) continue;
       const key = `${userId}|${src}`;
       const cur = state.agg.get(key) || { count: 0, windowStart: Date.now(), sample: excerpt };
       if (Date.now() - cur.windowStart > agg.windowMs) { cur.count = 0; cur.windowStart = Date.now(); }

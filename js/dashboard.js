@@ -199,7 +199,7 @@
     if (name === "playbooks") renderPlaybooks();
     if (name === "reports") renderReports();
     if (name === "team") renderTeam();
-    if (name === "settings") { renderSettings(); loadLogins(); loadAudit(); }
+    if (name === "settings") { renderSettings(); loadLogins(); loadAudit(); loadDetectRules(); }
     window.scrollTo(0, 0);
   }
   $$(".sidebar__item[data-view]").forEach((b) =>
@@ -1414,6 +1414,50 @@
       list.appendChild(a);
     }
 
+    // 攻击场景重构:同源 30 分钟窗口聚类
+    const campBySrc = {};
+    for (const a of [...state.alerts].sort((x, y) => x.ts - y.ts)) {
+      if (!a.src || a.src === "内生的" || a.src === "-") continue;
+      (campBySrc[a.src] = campBySrc[a.src] || []).push(a);
+    }
+    const campaigns = [];
+    for (const [src, list] of Object.entries(campBySrc)) {
+      let cur = null;
+      for (const a of list) {
+        if (cur && a.ts - cur.lastTs <= 30 * 60 * 1000) { cur.alerts.push(a); cur.lastTs = a.ts; }
+        else {
+          if (cur && cur.alerts.length >= 2) campaigns.push(cur);
+          cur = { src, alerts: [a], firstTs: a.ts, lastTs: a.ts };
+        }
+      }
+      if (cur && cur.alerts.length >= 2) campaigns.push(cur);
+    }
+    campaigns.sort((a, b) => b.lastTs - a.lastTs);
+    const cBox = $("#campaignList");
+    cBox.innerHTML = "";
+    if (!campaigns.length) { cBox.innerHTML = '<p class="blocklist__empty">暂无攻击场景(同源多次告警将自动聚合)</p>'; }
+    for (const c of campaigns.slice(0, 6)) {
+      const types = [...new Set(c.alerts.map((a) => a.type))];
+      const spanMin = Math.max(1, Math.round((c.lastTs - c.firstTs) / 60000));
+      const row = document.createElement("div");
+      row.className = "blocklist__row";
+      row.style.borderColor = "rgba(248, 113, 113, 0.35)";
+      row.innerHTML = `<span class="td-mono"></span>
+        <span class="dim" style="flex:1">${c.alerts.length} 条 · ${spanMin} 分钟 · <b style="color:var(--text)"></b></span>
+        <button class="mini-btn" data-csrc="${c.src}">查看告警</button>`;
+      row.querySelector(".td-mono").textContent = c.src;
+      row.querySelector("b").textContent = types.join(" → ");
+      cBox.appendChild(row);
+    }
+    cBox.onclick = (e) => {
+      const btn = e.target.closest("button[data-csrc]");
+      if (!btn) return;
+      switchView("alerts");
+      $("#alertSearch").value = btn.dataset.csrc;
+      renderAlerts();
+      toast(`已筛选来源 ${btn.dataset.csrc} 的告警`, "info");
+    };
+
     // 本周 vs 上周
     const wc = $("#weekCompare");
     if (wc && state.trend.length >= 14) {
@@ -2173,6 +2217,65 @@ node agent/agent.js --url ${location.origin} --token ${res.token} --generator`;
       if (!audit.length) box.innerHTML = '<p class="blocklist__empty">暂无审计记录</p>';
     } catch (e) { card.hidden = true; }
   }
+
+  /* ── 检测规则(内置 + 自定义)───────────────── */
+  async function loadDetectRules() {
+    if (mode === "demo") {
+      $("#builtinRules").innerHTML = '<p class="blocklist__empty">检测规则管理仅真实后端模式支持。</p>';
+      $("#customRules").innerHTML = "";
+      return;
+    }
+    try {
+      const { rules, custom } = await API.call("GET", "api/rules");
+      const bBox = $("#builtinRules");
+      bBox.innerHTML = "";
+      for (const r of rules) {
+        const row = document.createElement("div");
+        row.className = "blocklist__row";
+        row.style.borderColor = "var(--border-soft)";
+        row.style.background = "rgba(255,255,255,0.03)";
+        row.innerHTML = `<span><span class="tag tag--${r.level}">${{ crit: "严重", high: "高危", med: "中危", low: "低危" }[r.level]}</span> <b style="color:var(--text)"></b><span class="dim" style="display:block;font-size:11.5px">${r.kind === "aggregate" ? "聚合规则 · " + r.threshold + " 次/" + Math.round(r.windowMs / 60000) + " 分钟" : r.kind === "event" ? "事件型" : "正则匹配"} · ${r.phase}</span></span>`;
+        row.querySelector("b").textContent = r.name;
+        bBox.appendChild(row);
+      }
+      const cBox = $("#customRules");
+      cBox.innerHTML = "";
+      if (!custom.length) { cBox.innerHTML = '<p class="blocklist__empty">暂无自定义规则</p>'; }
+      for (const r of custom) {
+        const row = document.createElement("div");
+        row.className = "blocklist__row";
+        row.style.borderColor = "rgba(56, 225, 255, 0.3)";
+        row.innerHTML = `<span><span class="tag tag--${r.level}">${{ crit: "严重", high: "高危", med: "中危", low: "低危" }[r.level]}</span> <b style="color:var(--text)"></b><span class="dim" style="display:block;font-size:11.5px;font-family:var(--mono);color:var(--accent)"></span></span>
+          <button class="mini-btn mini-btn--danger" data-cr="${r.id}" style="margin-left:auto">🗑</button>`;
+        row.querySelector("b").textContent = r.name;
+        row.querySelector(".dim").textContent = r.pattern;
+        cBox.appendChild(row);
+      }
+    } catch (e) { toast(e.message, "warn"); }
+  }
+  $("#crAdd").addEventListener("click", async () => {
+    if (mode === "demo") return toast("自定义规则仅真实后端模式支持", "info");
+    const name = $("#crName").value.trim();
+    const pattern = $("#crPattern").value.trim();
+    const level = $("#crLevel").value;
+    const type = $("#crType").value.trim() || "自定义检测";
+    if (!name || !pattern) return toast("名称与正则模式不能为空", "warn");
+    try {
+      const res = await API.call("POST", "api/detect/rules", { name, level, type, pattern });
+      $("#crName").value = ""; $("#crPattern").value = "";
+      toast(`自定义规则「${name}」已生效`);
+      loadDetectRules();
+    } catch (e) { toast(e.message, "warn"); }
+  });
+  $("#customRules").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-cr]");
+    if (!btn) return;
+    try {
+      await API.call("DELETE", `api/detect/rules/${btn.dataset.cr}`);
+      toast("规则已删除", "info");
+      loadDetectRules();
+    } catch (e) { toast(e.message, "warn"); }
+  });
 
   /* ── 登录历史 ─────────────────────────────── */
   async function loadLogins() {

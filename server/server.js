@@ -558,8 +558,9 @@ app.post("/api/ingest/logs", agentAuth, (req, res) => {
   store.trimLogs(uid, 20000);
 
   // 检测引擎:真实日志 → 真实告警
+  const customRules = store.listCustomRules(uid);
   const created = [];
-  for (const a of detect.detectLogs(uid, inserted)) {
+  for (const a of detect.detectLogs(uid, inserted, customRules)) {
     const id = "DET-" + String(1000 + store.alertCount(uid));
     const saved = store.insertAlert(uid, {
       id, level: a.level, type: a.type, src: a.src, asset: a.asset,
@@ -593,7 +594,28 @@ app.delete("/api/agents/:id", requireUser, requireRole("admin", "analyst"), csrf
   res.json({ ok: true, agents: store.listAgents(req.user.id) });
 });
 app.get("/api/rules", requireUser, (req, res) => {
-  res.json({ rules: detect.listRules() });
+  res.json({ rules: detect.listRules(), custom: store.listCustomRules(req.user.id) });
+});
+app.post("/api/detect/rules", requireUser, requireRole("admin", "analyst"), csrfGuard, (req, res) => {
+  const { name, level, type, pattern } = req.body || {};
+  if (!String(name || "").trim() || !String(type || "").trim() || !String(pattern || "").trim())
+    return res.status(400).json({ error: "名称、类型与匹配模式均不能为空。" });
+  if (!["crit", "high", "med", "low"].includes(level)) return res.status(400).json({ error: "等级无效。" });
+  if (String(pattern).length > 300) return res.status(400).json({ error: "匹配模式过长(≤300)。" });
+  try { new RegExp(String(pattern), "i"); }
+  catch { return res.status(400).json({ error: "正则表达式无效,请检查语法。" }); }
+  if (store.customRuleCount(req.user.id) >= 20) return res.status(400).json({ error: "自定义规则已达上限(20 条)。" });
+  const rule = store.insertCustomRule(req.user.id, {
+    name: String(name).trim().slice(0, 40), level, type: String(type).trim().slice(0, 30),
+    pattern: String(pattern).trim(),
+  });
+  audit(req, "rule.create", `${rule.id} ${rule.name}`);
+  res.json({ ok: true, rule, custom: store.listCustomRules(req.user.id) });
+});
+app.delete("/api/detect/rules/:id", requireUser, requireRole("admin", "analyst"), csrfGuard, (req, res) => {
+  store.deleteCustomRule(req.user.id, req.params.id);
+  audit(req, "rule.delete", req.params.id);
+  res.json({ ok: true, custom: store.listCustomRules(req.user.id) });
 });
 app.get("/api/alerts", requireUser, (req, res) => {
   res.json({ alerts: store.getAlerts(req.user.id) });
