@@ -675,16 +675,41 @@
     ctx.textAlign = "left";
   }
 
+  /* ── 排序状态 ─────────────────────────────── */
+  let alertSort = { key: "ts", dir: -1 };
+  let assetSort = { key: "risk", dir: -1 };
+  const LEVEL_ORDER = { crit: 0, high: 1, med: 2, low: 3 };
+  $$("th.sortable").forEach((th) => th.addEventListener("click", () => {
+    const key = th.dataset.sort;
+    const inAlerts = th.closest("section")?.dataset.view === "alerts";
+    if (inAlerts) {
+      if (alertSort.key === key) alertSort.dir *= -1;
+      else alertSort = { key, dir: key === "ts" ? -1 : 1 };
+      renderAlerts();
+    } else {
+      if (assetSort.key === key) assetSort.dir *= -1;
+      else assetSort = { key, dir: key === "risk" ? -1 : 1 };
+      renderAssets();
+    }
+  }));
+
   function renderAlerts() {
     const kw = ($("#alertSearch").value || "").trim().toLowerCase();
     const lv = $("#alertLevel").value;
     const st = $("#alertStatus").value;
+    const from = $("#dateFrom").value ? new Date($("#dateFrom").value + "T00:00:00").getTime() : null;
+    const to = $("#dateTo").value ? new Date($("#dateTo").value + "T23:59:59").getTime() : null;
     const list = state.alerts.filter((a) => {
       if (lv && a.level !== lv) return false;
       if (st && a.status !== st) return false;
+      if (from && a.ts < from) return false;
+      if (to && a.ts > to) return false;
       if (kw && ![a.id, a.src, a.asset, a.type, a.desc].join(" ").toLowerCase().includes(kw)) return false;
       return true;
-    }).sort((x, y) => y.ts - x.ts);
+    }).sort((x, y) => {
+      if (alertSort.key === "level") return (LEVEL_ORDER[x.level] - LEVEL_ORDER[y.level]) * alertSort.dir;
+      return (x.ts - y.ts) * alertSort.dir;
+    });
 
     const tbody = $("#alertRows");
     tbody.innerHTML = "";
@@ -726,6 +751,7 @@
   const debouncedAlerts = debounce(renderAlerts, 150);
   $("#alertSearch").addEventListener("input", debouncedAlerts);
   ["alertLevel", "alertStatus"].forEach((id) => $("#" + id).addEventListener("change", renderAlerts));
+  ["dateFrom", "dateTo"].forEach((id) => $("#" + id).addEventListener("change", renderAlerts));
 
   /* ── 资产管理 ─────────────────────────────── */
   function riskColor(v) { return v >= 60 ? "risk--high" : v >= 35 ? "risk--mid" : "risk--low"; }
@@ -781,6 +807,9 @@
       if (st && a.status !== st) return false;
       if (kw && ![a.name, a.ip, a.type, a.os].join(" ").toLowerCase().includes(kw)) return false;
       return true;
+    }).sort((x, y) => {
+      if (assetSort.key === "name") return x.name.localeCompare(y.name) * assetSort.dir;
+      return (x.risk - y.risk) * assetSort.dir;
     });
     const tbody = $("#assetRows");
     tbody.innerHTML = "";

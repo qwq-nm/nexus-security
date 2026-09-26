@@ -7,6 +7,7 @@
   <meta name="description" content="登录 NEXUS 安全运营控制台,查看实时威胁告警与资产态势。" />
   <meta name="theme-color" content="#04060f" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2l11 5v8c0 7.2-4.7 12.4-11 15C9.7 27.4 5 22.2 5 15V7l11-5z' fill='none' stroke='%233b82f6' stroke-width='2'/%3E%3Cpath d='M11 16l3.5 3.5L21 13' fill='none' stroke='%2360a5fa' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="css/style.css?v=3" />
   <link rel="stylesheet" href="css/app.css?v=4" />
 </head>
@@ -41,6 +42,7 @@
           </div>
           <input id="password" name="password" type="password" placeholder="输入你的密码" autocomplete="current-password" required />
         </div>
+        <label class="checkline" style="margin-top:-4px"><input type="checkbox" id="rememberEmail" checked /><span>记住邮箱</span></label>
         <button class="btn btn--primary btn--lg" type="submit" id="loginBtn">登 录</button>
       </form>
 
@@ -53,6 +55,7 @@
 
   <script src="js/backend.js?v=3"></script>
   <script src="js/auth.js?v=4"></script>
-  <script src="js/auth-pages.js?v=4"></script>
+  <script src="js/auth-pages.js?v=5"></script>
+<script>if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(function(){});</script>
 </body>
 </html>

@@ -29,6 +29,9 @@
     const errEl = document.getElementById("loginError");
     const btn = document.getElementById("loginBtn");
     const form = document.getElementById("loginForm");
+    // 记住邮箱:预填
+    const savedEmail = localStorage.getItem("nexus_remember");
+    if (savedEmail) form.email.value = savedEmail;
 
     async function doLogin(email, password) {
       busy(btn, true, "验证中…");
@@ -40,6 +43,9 @@
           if (!res.ok) throw new Error(res.error);
           setSession(res.user.email);
         }
+        const remember = document.getElementById("rememberEmail");
+        if (remember && remember.checked) localStorage.setItem("nexus_remember", email);
+        else localStorage.removeItem("nexus_remember");
         btn.textContent = "登录成功,正在跳转…";
         location.replace(nextUrl());
       } catch (e) {

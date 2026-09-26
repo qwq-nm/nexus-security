@@ -536,3 +536,8 @@ table.dt tbody tr:hover { background: rgba(56, 225, 255, 0.05); }
 .batchbar b { color: var(--accent); }
 #hourChart { display: block; margin-bottom: 12px; opacity: 0.95; }
 #healthGauge { display: block; }
+
+/* ── 可排序表头 ──────────────────────────── */
+th.sortable { cursor: pointer; user-select: none; transition: color 0.15s ease; }
+th.sortable:hover { color: var(--accent); }
+#dateFrom, #dateTo { color-scheme: dark; }

@@ -1,0 +1,13 @@
+{
+  "name": "NEXUS 网络安全态势感知平台",
+  "short_name": "NEXUS",
+  "description": "实时网络安全态势感知平台:看见每一次威胁,在它开始之前阻断。",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#030408",
+  "theme_color": "#030408",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
