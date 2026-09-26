@@ -238,11 +238,25 @@
     ctx.textAlign = "left";
   }
 
-  /* ── 总览:事件流 ─────────────────────────── */
+  /* ── 总览:事件流(含等级筛选)──────────────── */
+  let feedFilter = "all";
+  $("#feedFilter").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-ff]");
+    if (!btn) return;
+    feedFilter = btn.dataset.ff;
+    $$("#feedFilter .mini-btn").forEach((b) => b.classList.toggle("active", b === btn));
+    renderFeed();
+  });
   function renderFeed() {
     const box = $("#feed");
     box.innerHTML = "";
-    for (const it of state.feed) {
+    const items = state.feed.filter((f) => {
+      if (feedFilter === "all") return true;
+      if (feedFilter === "ok") return f.level === "ok";
+      return f.level !== "ok"; // warn / crit
+    });
+    if (!items.length) { box.innerHTML = '<p class="notif__empty" style="padding:26px;text-align:center;color:var(--text-faint);font-size:13px">该分类下暂无事件</p>'; return; }
+    for (const it of items) {
       const row = document.createElement("div");
       row.className = "feed__row";
       const dot = { ok: "ok", warn: "warn", crit: "crit" }[it.level] || "warn";
@@ -725,6 +739,7 @@
       if (alertSort.key === "level") return (LEVEL_ORDER[x.level] - LEVEL_ORDER[y.level]) * alertSort.dir;
       return (x.ts - y.ts) * alertSort.dir;
     });
+    lastAlertIds = list.map((a) => a.id);
 
     const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
     if (alertPage > pages) alertPage = pages;
@@ -1307,7 +1322,7 @@
   ];
   function renderPresence(data) {
     $("#presenceCount").textContent = `${data.total} 人在线`;
-    $("#presenceTotal").textContent = `共 ${data.total} 人`;
+    $("#presenceTotal").textContent = `在线 ${data.total} 人 · 已注册 ${data.totalUsers ?? "—"} 人`;
     const list = $("#presenceList");
     list.innerHTML = "";
     if (!data.online.length) { list.innerHTML = '<p class="notif__empty">当前没有其他分析师在线</p>'; return; }
@@ -1324,7 +1339,7 @@
     if (mode === "api") {
       try { renderPresence(await API.call("GET", "api/presence")); } catch {}
     } else {
-      renderPresence({ total: DEMO_PRESENCE.length, online: DEMO_PRESENCE });
+      renderPresence({ total: DEMO_PRESENCE.length, online: DEMO_PRESENCE, totalUsers: 1 });
     }
   }
   $("#presenceChip").addEventListener("click", (e) => {
@@ -1340,11 +1355,16 @@
     if (!panel.hidden && !e.target.closest(".presence-wrap")) panel.hidden = true;
   });
 
-  /* ── 告警详情抽屉 ─────────────────────────── */
+  /* ── 告警详情抽屉(含上一条/下一条导航)────── */
   const drawer = $("#drawer");
+  let lastAlertIds = [];
   function openAlertDrawer(a) {
     $("#drawerTitle").textContent = a.id;
     const ops = alertActions(a);
+    const idx = lastAlertIds.indexOf(a.id);
+    const nav = [];
+    if (idx > 0) nav.push(`<button class="mini-btn" data-nav="-1" title="上一条">‹ 上一条</button>`);
+    if (idx < lastAlertIds.length - 1) nav.push(`<button class="mini-btn" data-nav="1" title="下一条">下一条 ›</button>`);
     $("#drawerBody").innerHTML = `
       <dl class="kv">
         <dt>等级</dt><dd><span class="tag tag--${a.level}">${LEVEL_NAME[a.level]}</span></dd>
@@ -1380,9 +1400,11 @@
     dd[4].textContent = a.asset;
     $("#drawerBody").querySelector(".drawer__desc").textContent = a.desc;
     $("#drawerNote").value = a.note || "";
-    $("#drawerFoot").innerHTML = ops.length
-      ? ops.map(([label, act, cls]) => `<button class="mini-btn mini-btn--${cls || "default"}" data-act="${act}" data-id="${a.id}">${label}</button>`).join("")
-      : '<span class="td-dim">该告警已完结,无可用操作。</span>';
+    $("#drawerFoot").innerHTML =
+      (nav.length ? nav.join("") : "") +
+      (ops.length
+        ? ops.map(([label, act, cls]) => `<button class="mini-btn mini-btn--${cls || "default"}" data-act="${act}" data-id="${a.id}">${label}</button>`).join("")
+        : '<span class="td-dim">该告警已完结,无可用操作。</span>');
     drawer.classList.add("open");
     drawer.setAttribute("aria-hidden", "false");
   }
@@ -1407,8 +1429,25 @@
   }
   $("#drawerClose").addEventListener("click", closeDrawer);
   $("#drawerMask").addEventListener("click", closeDrawer);
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeDrawer();
+    if (drawer.classList.contains("open") && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+      if (["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
+      const idx = lastAlertIds.indexOf($("#drawerTitle").textContent);
+      const nextId = lastAlertIds[idx + (e.key === "ArrowRight" ? 1 : -1)];
+      const next = state.alerts.find((x) => x.id === nextId);
+      if (next) openAlertDrawer(next);
+    }
+  });
   $("#drawerFoot").addEventListener("click", async (e) => {
+    const navBtn = e.target.closest("button[data-nav]");
+    if (navBtn) {
+      const idx = lastAlertIds.indexOf($("#drawerTitle").textContent);
+      const nextId = lastAlertIds[idx + parseInt(navBtn.dataset.nav, 10)];
+      const next = state.alerts.find((x) => x.id === nextId);
+      if (next) openAlertDrawer(next);
+      return;
+    }
     const btn = e.target.closest("button[data-act]");
     if (!btn) return;
     const kind = btn.dataset.kind || "alert";

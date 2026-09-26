@@ -395,7 +395,8 @@ app.get("/api/presence", requireUser, (req, res) => {
     const u = store.getUserById(uid);
     if (u) online.push({ name: u.name, company: u.company });
   }
-  res.json({ total: online.length, online });
+  const totalUsers = store.db.prepare("SELECT COUNT(*) AS c FROM users").get().c;
+  res.json({ total: online.length, online, totalUsers });
 });
 
 /* ── 资料编辑 ─────────────────────────────── */

@@ -607,3 +607,13 @@ th.sortable:hover { color: var(--accent); }
 }
 .onboard b { color: var(--accent); font-family: var(--mono); }
 .onboard .mini-btn { margin-left: auto; }
+
+/* ── 事件流等级筛选 ──────────────────────── */
+.feed-filter { display: flex; gap: 6px; }
+.feed-filter .mini-btn.active { color: #02090c; background: var(--accent); border-color: var(--accent); }
+
+/* ── 小屏顶栏精简(防横向溢出)────────────── */
+@media (max-width: 700px) {
+  #connState, .topbar .tag--ok, .presence-wrap { display: none !important; }
+  .topbar__right { gap: 8px; }
+}
