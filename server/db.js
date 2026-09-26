@@ -88,6 +88,12 @@ db.exec(`
 // 老库迁移:告警备注列 + 用户 Webhook 列
 try { db.exec("ALTER TABLE alerts ADD COLUMN note TEXT DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE users ADD COLUMN webhook TEXT DEFAULT ''"); } catch {}
+try {
+  db.exec("ALTER TABLE trend ADD COLUMN crit INTEGER DEFAULT 0");
+  db.exec("ALTER TABLE trend ADD COLUMN high INTEGER DEFAULT 0");
+  db.exec("ALTER TABLE trend ADD COLUMN med INTEGER DEFAULT 0");
+  db.exec("ALTER TABLE trend ADD COLUMN low INTEGER DEFAULT 0");
+} catch {}
 db.exec(`
   CREATE TABLE IF NOT EXISTS logins (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -247,12 +253,16 @@ function seedUserData(userId) {
 
   const days = 30;
   let base = 320;
-  const insTrend = db.prepare("INSERT INTO trend (user_id, idx, day, alerts, blocked) VALUES (?, ?, ?, ?, ?)");
+  const insTrend = db.prepare("INSERT INTO trend (user_id, idx, day, alerts, blocked, crit, high, med, low) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
   for (let i = 0; i < days; i++) {
     const d = new Date(now - (days - 1 - i) * 86400000);
     const label = `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     base = Math.max(140, Math.round(base + (rnd() - 0.45) * 90));
-    insTrend.run(userId, i, label, base, Math.round(base * (0.9 + rnd() * 0.08)));
+    const crit = Math.round(base * (0.04 + rnd() * 0.04));
+    const high = Math.round(base * (0.16 + rnd() * 0.08));
+    const med = Math.round(base * (0.34 + rnd() * 0.1));
+    const low = base - crit - high - med;
+    insTrend.run(userId, i, label, base, Math.round(base * (0.9 + rnd() * 0.08)), crit, high, med, low);
   }
 
   const feedSeed = [
@@ -331,7 +341,7 @@ function getPlaybook(userId, id) {
   return db.prepare("SELECT * FROM playbooks WHERE user_id = ? AND id = ?").get(userId, id) || null;
 }
 function getTrend(userId) {
-  return db.prepare("SELECT day, alerts, blocked FROM trend WHERE user_id = ? ORDER BY idx").all(userId);
+  return db.prepare("SELECT day, alerts, blocked, crit, high, med, low FROM trend WHERE user_id = ? ORDER BY idx").all(userId);
 }
 function getFeed(userId, limit = 30) {
   return db.prepare("SELECT ts, level, msg FROM feed WHERE user_id = ? ORDER BY id DESC LIMIT ?").all(userId, limit)
@@ -348,7 +358,9 @@ function migrateTrends() {
   const users = db.prepare("SELECT id FROM users").all();
   const count = db.prepare("SELECT COUNT(*) AS c FROM trend WHERE user_id = ?");
   for (const u of users) {
-    if (count.get(u.id).c < 30) {
+    const c = count.get(u.id).c;
+    const sums = db.prepare("SELECT SUM(crit + high + med + low) AS l FROM trend WHERE user_id = ?").get(u.id);
+    if (c < 30 || !sums.l) {
       db.prepare("DELETE FROM trend WHERE user_id = ?").run(u.id);
       seedTrendOnly(u.id);
     }
@@ -359,12 +371,16 @@ function seedTrendOnly(userId) {
   const now = Date.now();
   const days = 30;
   let base = 320;
-  const insTrend = db.prepare("INSERT INTO trend (user_id, idx, day, alerts, blocked) VALUES (?, ?, ?, ?, ?)");
+  const insTrend = db.prepare("INSERT INTO trend (user_id, idx, day, alerts, blocked, crit, high, med, low) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
   for (let i = 0; i < days; i++) {
     const d = new Date(now - (days - 1 - i) * 86400000);
     const label = `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     base = Math.max(140, Math.round(base + (rnd() - 0.45) * 90));
-    insTrend.run(userId, i, label, base, Math.round(base * (0.9 + rnd() * 0.08)));
+    const crit = Math.round(base * (0.04 + rnd() * 0.04));
+    const high = Math.round(base * (0.16 + rnd() * 0.08));
+    const med = Math.round(base * (0.34 + rnd() * 0.1));
+    const low = base - crit - high - med;
+    insTrend.run(userId, i, label, base, Math.round(base * (0.9 + rnd() * 0.08)), crit, high, med, low);
   }
 }
 

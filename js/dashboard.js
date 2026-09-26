@@ -51,20 +51,24 @@
       }
     : { alerts() {}, assets() {}, playbooks() {}, trend() {}, feed() {} };
 
-  // 演示模式:趋势数据不足 30 天时本地补齐(必须在 save 定义之后)
-  if (mode === "demo" && state.trend.length < 30) {
-    let base = 320;
-    const days = 30;
-    const gen = [];
-    for (let i = 0; i < days; i++) {
-      const d = new Date(Date.now() - (days - 1 - i) * 86400000);
-      const label = `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      base = Math.max(140, Math.round(base + (Math.random() - 0.45) * 90));
-      gen.push({ day: label, alerts: base, blocked: Math.round(base * (0.9 + Math.random() * 0.08)) });
+    // 演示模式:趋势数据不足 30 天时本地补齐(含四级分布)
+    if (mode === "demo" && state.trend.length < 30) {
+      let base = 320;
+      const days = 30;
+      const gen = [];
+      for (let i = 0; i < days; i++) {
+        const d = new Date(Date.now() - (days - 1 - i) * 86400000);
+        const label = `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        base = Math.max(140, Math.round(base + (Math.random() - 0.45) * 90));
+        const crit = Math.round(base * (0.04 + Math.random() * 0.04));
+        const high = Math.round(base * (0.16 + Math.random() * 0.08));
+        const med = Math.round(base * (0.34 + Math.random() * 0.1));
+        const low = base - crit - high - med;
+        gen.push({ day: label, alerts: base, blocked: Math.round(base * (0.9 + Math.random() * 0.08)), crit, high, med, low });
+      }
+      state.trend = gen;
+      save.trend();
     }
-    state.trend = gen;
-    save.trend();
-  }
 
   /* ── 工具 ─────────────────────────────────── */
   const $ = (s) => document.querySelector(s);
@@ -368,7 +372,9 @@
     const idx = Math.round(((mx - padL) / iw) * (data.length - 1));
     if (idx < 0 || idx >= data.length) { tip.hidden = true; return; }
     const d = data[idx];
-    tip.innerHTML = `<b>${d.day}</b> 新增 ${d.alerts} · 拦截 ${d.blocked}`;
+    tip.innerHTML = typeof d.crit === "number"
+      ? `<b>${d.day}</b> 新增 ${d.alerts}(严 ${d.crit} · 高 ${d.high} · 中 ${d.med} · 低 ${d.low})`
+      : `<b>${d.day}</b> 新增 ${d.alerts} · 拦截 ${d.blocked}`;
     tip.hidden = false;
     const x = Math.min(Math.max(padL + (iw * idx) / Math.max(data.length - 1, 1), 70), rect.width - 90);
     tip.style.left = x - 60 + "px";
@@ -402,27 +408,63 @@
     });
     trendLayout = { padL, padR, iw };
 
-    const area = ctx.createLinearGradient(0, padT, 0, padT + ih);
-    area.addColorStop(0, "rgba(56, 225, 255, 0.30)");
-    area.addColorStop(1, "rgba(56, 225, 255, 0)");
-    ctx.beginPath();
-    data.forEach((d, i) => (i ? ctx.lineTo(X(i), Y(d.alerts)) : ctx.moveTo(X(i), Y(d.alerts))));
-    ctx.lineTo(X(data.length - 1), padT + ih); ctx.lineTo(X(0), padT + ih); ctx.closePath();
-    ctx.fillStyle = area; ctx.fill();
+    const hasLevels = data.every((d) => typeof d.crit === "number");
+    if (hasLevels) {
+      // 等级堆叠面积(低→中→高→严重)+ 总量线 + 拦截虚线
+      const LVS = [
+        ["low", "rgba(74, 222, 128, 0.4)"],
+        ["med", "rgba(56, 225, 255, 0.4)"],
+        ["high", "rgba(251, 191, 36, 0.45)"],
+        ["crit", "rgba(248, 113, 113, 0.5)"],
+      ];
+      const accs = data.map((d) => {
+        let s = 0;
+        return LVS.map(([lv]) => (s += d[lv] || 0, s));
+      });
+      let prevLine = data.map(() => 0);
+      LVS.forEach(([lv, color], li) => {
+        ctx.beginPath();
+        data.forEach((d, i) => { const y = Y(accs[i][li]); i ? ctx.lineTo(X(i), y) : ctx.moveTo(X(i), y); });
+        for (let i = data.length - 1; i >= 0; i--) ctx.lineTo(X(i), Y(prevLine[i]));
+        ctx.closePath();
+        ctx.fillStyle = color;
+        ctx.fill();
+        prevLine = data.map((_, i) => accs[i][li]);
+      });
+      ctx.beginPath();
+      data.forEach((d, i) => { const y = Y(d.alerts); i ? ctx.lineTo(X(i), y) : ctx.moveTo(X(i), y); });
+      ctx.strokeStyle = "#9ddcff"; ctx.lineWidth = 2; ctx.stroke();
+      ctx.beginPath();
+      data.forEach((d, i) => { const y = Y(d.blocked); i ? ctx.lineTo(X(i), y) : ctx.moveTo(X(i), y); });
+      ctx.strokeStyle = "#e2f9ff"; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.setLineDash([]);
+      data.forEach((d, i) => {
+        ctx.fillStyle = "#a5f3fc";
+        ctx.beginPath(); ctx.arc(X(i), Y(d.alerts), 3, 0, Math.PI * 2); ctx.fill();
+      });
+    } else {
+      const area = ctx.createLinearGradient(0, padT, 0, padT + ih);
+      area.addColorStop(0, "rgba(56, 225, 255, 0.30)");
+      area.addColorStop(1, "rgba(56, 225, 255, 0)");
+      ctx.beginPath();
+      data.forEach((d, i) => (i ? ctx.lineTo(X(i), Y(d.alerts)) : ctx.moveTo(X(i), Y(d.alerts))));
+      ctx.lineTo(X(data.length - 1), padT + ih); ctx.lineTo(X(0), padT + ih); ctx.closePath();
+      ctx.fillStyle = area; ctx.fill();
 
-    ctx.beginPath();
-    data.forEach((d, i) => (i ? ctx.lineTo(X(i), Y(d.alerts)) : ctx.moveTo(X(i), Y(d.alerts))));
-    ctx.strokeStyle = "#38e1ff"; ctx.lineWidth = 2; ctx.stroke();
+      ctx.beginPath();
+      data.forEach((d, i) => (i ? ctx.lineTo(X(i), Y(d.alerts)) : ctx.moveTo(X(i), Y(d.alerts))));
+      ctx.strokeStyle = "#38e1ff"; ctx.lineWidth = 2; ctx.stroke();
 
-    ctx.beginPath();
-    data.forEach((d, i) => (i ? ctx.lineTo(X(i), Y(d.blocked)) : ctx.moveTo(X(i), Y(d.blocked))));
-    ctx.strokeStyle = "#7dd3fc"; ctx.lineWidth = 2; ctx.setLineDash([5, 4]); ctx.stroke();
-    ctx.setLineDash([]);
+      ctx.beginPath();
+      data.forEach((d, i) => (i ? ctx.lineTo(X(i), Y(d.blocked)) : ctx.moveTo(X(i), Y(d.blocked))));
+      ctx.strokeStyle = "#7dd3fc"; ctx.lineWidth = 2; ctx.setLineDash([5, 4]); ctx.stroke();
+      ctx.setLineDash([]);
 
-    data.forEach((d, i) => {
-      ctx.fillStyle = "#a5f3fc";
-      ctx.beginPath(); ctx.arc(X(i), Y(d.alerts), 3, 0, Math.PI * 2); ctx.fill();
-    });
+      data.forEach((d, i) => {
+        ctx.fillStyle = "#a5f3fc";
+        ctx.beginPath(); ctx.arc(X(i), Y(d.alerts), 3, 0, Math.PI * 2); ctx.fill();
+      });
+    }
   }
 
   const TYPE_COLORS = ["#38e1ff", "#8b5cf6", "#f59e0b", "#f87171", "#4ade80", "#22d3ee", "#64748b"];
