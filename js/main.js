@@ -133,6 +133,28 @@
     else requestAnimationFrame(frame);
   }
 
+  /* ── 1b. 客户评价轮播 ─────────────────────── */
+  const tstDots = document.getElementById("tstDots");
+  if (tstDots) {
+    const slides = [...document.querySelectorAll(".tst")];
+    let cur = 0, timer = 0;
+    slides.forEach((_, i) => {
+      const dot = document.createElement("button");
+      dot.className = "tst__dot" + (i === 0 ? " active" : "");
+      dot.setAttribute("aria-label", "评价 " + (i + 1));
+      dot.addEventListener("click", () => { go(i); restart(); });
+      tstDots.appendChild(dot);
+    });
+    const dots = [...tstDots.children];
+    function go(i) {
+      cur = i;
+      slides.forEach((s, k) => s.classList.toggle("active", k === i));
+      dots.forEach((d, k) => d.classList.toggle("active", k === i));
+    }
+    function restart() { clearInterval(timer); timer = setInterval(() => go((cur + 1) % slides.length), 5000); }
+    restart();
+  }
+
   /* ── 2. 威胁事件流 ───────────────────────── */
   const term = document.getElementById("terminalBody");
   if (term) {

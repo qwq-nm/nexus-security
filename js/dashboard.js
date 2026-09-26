@@ -1025,6 +1025,107 @@
   });
 
   /* ── 报表中心 ─────────────────────────────── */
+  /* ── 全球威胁来源分布 ─────────────────────── */
+  const GEO_REGIONS = [
+    { name: "北美", x: 0.14, y: 0.34 },
+    { name: "南美", x: 0.26, y: 0.66 },
+    { name: "欧洲", x: 0.47, y: 0.24 },
+    { name: "非洲", x: 0.49, y: 0.55 },
+    { name: "中东", x: 0.58, y: 0.42 },
+    { name: "亚太", x: 0.8, y: 0.4 },
+    { name: "其他", x: 0.68, y: 0.14 },
+  ];
+  function ipRegion(ip) {
+    if (!ip || ip === "内生的" || ip === "-") return null;
+    const first = parseInt(ip.split(".")[0], 10);
+    if (isNaN(first)) return "其他";
+    if (first < 45) return "亚太";
+    if (first < 61) return "亚太";
+    if (first < 91) return "亚太";
+    if (first < 115) return "中东";
+    if (first < 155) return "欧洲";
+    if (first < 187) return "北美";
+    if (first < 205) return "南美";
+    if (first < 224) return "非洲";
+    return "其他";
+  }
+  let geoCounts = {};
+  function computeGeo() {
+    const counts = {};
+    for (const a of state.alerts) {
+      const r = ipRegion(a.src);
+      if (r) counts[r] = (counts[r] || 0) + 1;
+    }
+    geoCounts = counts;
+  }
+  function drawGeo(t) {
+    const cv = $("#geoChart");
+    if (!cv) return;
+    const { ctx, w, h } = setupCanvas(cv);
+    ctx.clearRect(0, 0, w, h);
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const hub = { x: w * 0.5, y: h * 0.86 };
+    const maxCount = Math.max(1, ...Object.values(geoCounts));
+
+    // 背景点阵(经纬感)
+    ctx.fillStyle = "rgba(148, 163, 184, 0.1)";
+    for (let gx = 0.06; gx < 1; gx += 0.035) {
+      for (let gy = 0.1; gy < 0.8; gy += 0.06) {
+        ctx.beginPath();
+        ctx.arc(w * gx, h * gy, 1.1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // 中心枢纽
+    ctx.fillStyle = "#38e1ff";
+    ctx.shadowColor = "rgba(56, 225, 255, 0.8)"; ctx.shadowBlur = 14;
+    ctx.beginPath(); ctx.arc(hub.x, hub.y, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(238, 241, 247, 0.85)";
+    ctx.font = "11px " + getComputedStyle(document.body).fontFamily;
+    ctx.textAlign = "center";
+    ctx.fillText("你的网络", hub.x, hub.y + 20);
+
+    let raf = false;
+    for (const region of GEO_REGIONS) {
+      const count = geoCounts[region.name] || 0;
+      const x = w * region.x, y = h * region.y;
+      const size = 3 + (count / maxCount) * 7;
+      const alpha = count ? 0.95 : 0.3;
+
+      // 攻击弧线 + 脉冲
+      if (count) {
+        const mx = (x + hub.x) / 2, my = Math.min(y, hub.y) - 40 - (y - hub.y) * 0.2;
+        ctx.strokeStyle = `rgba(248, 113, 113, ${count ? 0.35 : 0})`;
+        ctx.lineWidth = 1 + (count / maxCount) * 1.5;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.quadraticCurveTo(mx, my, hub.x, hub.y);
+        ctx.stroke();
+        if (!reduced) {
+          raf = true;
+          const pulse = ((t / 900) + region.x * 7) % 1;   // 沿弧线的脉冲位置
+          const px = (1 - pulse) * (1 - pulse) * x + 2 * (1 - pulse) * pulse * mx + pulse * pulse * hub.x;
+          const py = (1 - pulse) * (1 - pulse) * y + 2 * (1 - pulse) * pulse * my + pulse * pulse * hub.y;
+          ctx.fillStyle = "rgba(248, 113, 113, 0.95)";
+          ctx.beginPath(); ctx.arc(px, py, 2.6, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+
+      // 区域节点
+      ctx.fillStyle = count ? `rgba(248, 113, 113, ${alpha})` : "rgba(148, 163, 184, 0.35)";
+      ctx.shadowColor = count ? "rgba(248, 113, 113, 0.7)" : "transparent";
+      ctx.shadowBlur = count ? 10 : 0;
+      ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = count ? "rgba(238, 241, 247, 0.9)" : "rgba(148, 163, 184, 0.5)";
+      ctx.fillText(`${region.name}${count ? " · " + count : ""}`, x, y - size - 8);
+    }
+    ctx.textAlign = "left";
+    if (!reduced && currentView === "reports") requestAnimationFrame(() => drawGeo(performance.now() + 16));
+  }
+
   function renderReports() {
     const comp = [
       ["等保 2.0(三级)", 92], ["ISO 27001", 88], ["SOC 2 Type II", 95], ["GDPR", 81],
@@ -1103,6 +1204,9 @@
       a.addEventListener("click", (e) => { e.preventDefault(); toast(`「${name}」为演示数据,暂不提供下载`, "info"); });
       list.appendChild(a);
     }
+
+    computeGeo();
+    requestAnimationFrame((t) => drawGeo(t));
   }
 
   /* ── 通知铃铛 ─────────────────────────────── */

@@ -552,3 +552,28 @@ body::after {
   .step, .feature { border-left: none; }
   .terminal__body { font-size: 11.4px; height: 300px; }
 }
+
+/* ── 客户评价轮播 ─────────────────────────── */
+.testimonials { max-width: 860px; margin: 0 auto; padding: 70px 24px 40px; text-align: center; }
+.tst__viewport { position: relative; min-height: 150px; }
+.tst {
+  position: absolute; inset: 0;
+  opacity: 0; transform: translateY(14px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+  pointer-events: none;
+}
+.tst.active { opacity: 1; transform: none; pointer-events: auto; }
+.tst blockquote {
+  font-size: clamp(17px, 2.2vw, 22px); font-weight: 600; line-height: 1.75;
+  color: var(--text);
+}
+.tst blockquote::before { content: """; color: var(--accent); margin-right: 2px; }
+.tst blockquote::after { content: """; color: var(--accent); margin-left: 2px; }
+.tst figcaption { margin-top: 18px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em; color: var(--text-faint); }
+.tst figcaption b { color: var(--accent); font-weight: 600; }
+.tst__dots { display: flex; justify-content: center; gap: 10px; margin-top: 28px; }
+.tst__dot {
+  width: 26px; height: 3px; border-radius: 2px; border: none; cursor: pointer;
+  background: rgba(148, 163, 184, 0.25); transition: background 0.2s ease;
+}
+.tst__dot.active { background: var(--accent); }

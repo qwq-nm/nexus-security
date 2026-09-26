@@ -291,6 +291,13 @@
             </div>
             <div class="card" style="grid-column: 1 / -1;">
               <div class="card__head">
+                <p class="card__title">全球威胁来源分布</p>
+                <p class="card__hint">按来源 IP 归属区域聚合 · 弧线为攻击路径</p>
+              </div>
+              <canvas id="geoChart" style="width:100%;height:280px" aria-label="全球威胁来源分布图"></canvas>
+            </div>
+            <div class="card" style="grid-column: 1 / -1;">
+              <div class="card__head">
                 <p class="card__title">安全周报归档</p>
                 <button class="mini-btn" id="genWeekly" title="根据当前数据生成周报并下载">⬇ 生成本周周报</button>
               </div>
@@ -380,7 +387,7 @@
 
   <script src="js/backend.js?v=3"></script>
   <script src="js/auth.js?v=4"></script>
-  <script src="js/dashboard.js?v=10"></script>
+  <script src="js/dashboard.js?v=11"></script>
 <script>if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(function(){});</script>
 </body>
 </html>
