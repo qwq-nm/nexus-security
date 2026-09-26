@@ -38,20 +38,6 @@
       trend: N.read(N.K.trend(user.email), []),
       feed: N.read(N.K.feed(user.email), []),
     });
-    // 演示模式:趋势数据不足 30 天时本地补齐
-    if (state.trend.length < 30) {
-      let base = 320;
-      const days = 30;
-      const gen = [];
-      for (let i = 0; i < days; i++) {
-        const d = new Date(Date.now() - (days - 1 - i) * 86400000);
-        const label = `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-        base = Math.max(140, Math.round(base + (Math.random() - 0.45) * 90));
-        gen.push({ day: label, alerts: base, blocked: Math.round(base * (0.9 + Math.random() * 0.08)) });
-      }
-      state.trend = gen;
-      save.trend();
-    }
   }
 
   /* ── 持久化(demo 模式写 localStorage;api 模式由服务端负责)─ */
@@ -64,6 +50,21 @@
         feed: () => N.write(N.K.feed(user.email), state.feed),
       }
     : { alerts() {}, assets() {}, playbooks() {}, trend() {}, feed() {} };
+
+  // 演示模式:趋势数据不足 30 天时本地补齐(必须在 save 定义之后)
+  if (mode === "demo" && state.trend.length < 30) {
+    let base = 320;
+    const days = 30;
+    const gen = [];
+    for (let i = 0; i < days; i++) {
+      const d = new Date(Date.now() - (days - 1 - i) * 86400000);
+      const label = `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      base = Math.max(140, Math.round(base + (Math.random() - 0.45) * 90));
+      gen.push({ day: label, alerts: base, blocked: Math.round(base * (0.9 + Math.random() * 0.08)) });
+    }
+    state.trend = gen;
+    save.trend();
+  }
 
   /* ── 工具 ─────────────────────────────────── */
   const $ = (s) => document.querySelector(s);
