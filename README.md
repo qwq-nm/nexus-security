@@ -47,6 +47,33 @@
 **优化**:gzip 压缩、搜索防抖、打印样式(报表导出 PDF)、prefers-reduced-motion 全站适配、Canvas 按视图懒绘制
 - 登录守卫:api 模式由服务端 401 驱动跳转;demo 模式由前端守卫
 
+## 🏗️ 真实数据管道(阶段一)
+
+```
+Agent 采集器(tail 真实日志 / 压力生成器)
+  → POST /api/ingest/logs(Bearer Token 鉴权)
+  → 检测引擎(Sigma 风格 13 规则 + 暴力破解聚合 + 同源冷却)
+  → 真实告警落库(带命中规则与原始日志摘录)
+  → SSE 实时推送 + Webhook(HMAC-SHA256 签名,失败重试 3 次)
+```
+
+接入命令(控制台「设置 → 数据接入」创建 Token 后):
+
+```bash
+node agent/agent.js --url http://localhost:3000 --token <TOKEN> --file /var/log/auth.log
+node agent/agent.js --url http://localhost:3000 --token <TOKEN> --generator
+```
+
+## 🏛️ 企业化(阶段二)
+
+- **RBAC**:admin / analyst / viewer 三级角色,服务端强制 + 前端适配(团队视图可管理)
+- **审计日志**:登录/处置/接入/配置变更全量落库,管理员可查
+- **CSRF 双提交防护**、会话与 Agent Token 分离鉴权
+- **测试**:20 项 API 集成测试(`node tests/api.test.js`)
+- **CI**:GitHub Actions(语法检查 + 集成测试)
+- **Docker**:`docker compose up -d`(数据卷持久化 + 健康检查)
+- **日志保留**:原始日志 7 天自动清理 + 2 万条环形上限
+
 ## 🚀 运行
 
 **真实模式(推荐)**:

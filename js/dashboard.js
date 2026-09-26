@@ -1931,7 +1931,9 @@
     $("#profName").value = user.name;
     $("#profCompany").value = user.company || "";
     $("#webhookUrl").value = user.webhook || "";
-    $("#webhookHint").textContent = user.webhook ? "当前已配置推送目标。" : "未配置 · 严重/高危事件将不会推送。";
+    $("#webhookHint").textContent = user.webhook ? "当前已配置推送目标(失败自动重试 3 次)。" : "未配置 · 严重/高危事件将不会推送。";
+    $("#webhookSecretBox").hidden = !user.webhookSecret;
+    $("#webhookSecret").value = user.webhookSecret || "";
   }
   $("#profileForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -2070,6 +2072,7 @@ ${pending.map((a) => `- [ ] ${a.id}(${LEVEL_NAME[a.level]})${a.type} → ${a.ass
     try {
       const res = await API.call("PUT", "api/auth/webhook", { url });
       user.webhook = res.webhook;
+      user.webhookSecret = res.webhookSecret || user.webhookSecret;
       $("#webhookHint").textContent = url ? "已保存推送目标。" : "已清除推送目标。";
       toast(url ? "Webhook 已保存" : "Webhook 已清除");
     } catch (e) { toast(e.message, "warn"); }

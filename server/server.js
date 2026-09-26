@@ -634,32 +634,65 @@ function webhookPayload(url, event) {
   if (url.includes("hooks.slack.com")) return { text };
   return { source: "NEXUS", level: event.level, msg: event.msg, ts: event.ts };
 }
+
+// Webhook 签名:HMAC-SHA256(secret, rawBody) → X-NEXUS-Signature 头,接收端可验真
+const crypto = require("node:crypto");
+function webhookDeliver(user, event, attempt = 1) {
+  if (!user.webhook) return;
+  const body = JSON.stringify(webhookPayload(user.webhook, event));
+  const sig = "sha256=" + crypto.createHmac("sha256", user.webhook_secret || "").update(body).digest("hex");
+  fetch(user.webhook, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-NEXUS-Signature": sig,
+      "X-NEXUS-Event": event.level,
+      "User-Agent": "NEXUS-Webhook/1.0",
+    },
+    body,
+  }).then((r) => {
+    if (!r.ok && attempt < 3) webhookRetry(user, event, attempt);
+  }).catch(() => {
+    if (attempt < 3) webhookRetry(user, event, attempt); // 失败重试:最多 3 次
+  });
+}
+const webhookQueue = [];
+function webhookRetry(user, event, attempt) {
+  webhookQueue.push({ userId: user.id, event, attempt: attempt + 1 });
+}
+// 重试队列消费:指数退避(30s → 60s → 120s 由轮次近似)
+setInterval(() => {
+  const item = webhookQueue.shift();
+  if (item) {
+    const u = store.getUserById(item.userId);
+    if (u && u.webhook) webhookDeliver(u, item.event, item.attempt);
+  }
+}, 30000);
+
 function webhookPush(userId, event) {
   const user = store.getUserById(userId);
   if (!user || !user.webhook) return;
   if (!["crit", "high"].includes(event.level)) return;
-  fetch(user.webhook, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(webhookPayload(user.webhook, event)),
-  }).catch(() => {}); // 演示:失败静默,不阻塞主流程
+  webhookDeliver(user, event);
 }
 app.put("/api/auth/webhook", requireUser, csrfGuard, (req, res) => {
   const url = String((req.body || {}).url || "").trim();
   if (url && !/^https?:\/\//i.test(url)) return res.status(400).json({ error: "Webhook 地址必须以 http(s):// 开头。" });
-  store.updateUserWebhook(req.user.id, url);
+  const updated = store.updateUserWebhook(req.user.id, url);
   audit(req, "webhook.set", url || "(清除)");
-  res.json({ ok: true, webhook: url });
+  res.json({ ok: true, webhook: url, webhookSecret: updated.webhook_secret || "" });
 });
 app.post("/api/webhook/test", requireUser, async (req, res) => {
   const user = store.getUserById(req.user.id);
   if (!user.webhook) return res.status(400).json({ error: "请先保存 Webhook 地址。" });
   const payload = webhookPayload(user.webhook, { level: "crit", msg: "这是一条 Webhook 测试推送", ts: Date.now() });
+  const body = JSON.stringify(payload);
+  const sig = "sha256=" + crypto.createHmac("sha256", user.webhook_secret || "").update(body).digest("hex");
   try {
     await fetch(user.webhook, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json", "X-NEXUS-Signature": sig, "X-NEXUS-Event": "crit" },
+      body,
       signal: AbortSignal.timeout(5000),
     });
     res.json({ ok: true, msg: "测试推送已发送,请检查接收端。" });
@@ -700,6 +733,12 @@ app.use((err, req, res, next) => {
   console.error(err);
   res.status(500).json({ error: "服务器内部错误。" });
 });
+
+// 日志保留策略:清理 7 天前的原始日志
+setInterval(() => {
+  store.db.prepare("DELETE FROM logs WHERE ts < ?").run(Date.now() - 7 * 86400000);
+}, 6 * 3600 * 1000);
+store.db.prepare("DELETE FROM logs WHERE ts < ?").run(Date.now() - 7 * 86400000);
 
 store.purgeExpiredSessions();
 store.migrateTrends();

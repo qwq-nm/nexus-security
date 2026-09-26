@@ -88,6 +88,7 @@ db.exec(`
 // 老库迁移:告警备注列 + 用户 Webhook 列 + 趋势四级分布
 try { db.exec("ALTER TABLE alerts ADD COLUMN note TEXT DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE users ADD COLUMN webhook TEXT DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN webhook_secret TEXT DEFAULT ''"); } catch {}
 try {
   db.exec("ALTER TABLE alerts ADD COLUMN rule_id TEXT DEFAULT ''");
   db.exec("ALTER TABLE alerts ADD COLUMN log_excerpt TEXT DEFAULT ''");
@@ -166,7 +167,7 @@ function getUserById(id) {
   return db.prepare("SELECT * FROM users WHERE id = ?").get(id) || null;
 }
 function publicUser(u) {
-  return { name: u.name, company: u.company, email: u.email, createdAt: u.created_at, webhook: u.webhook || "", role: u.role || "analyst" };
+  return { name: u.name, company: u.company, email: u.email, createdAt: u.created_at, webhook: u.webhook || "", webhookSecret: u.webhook_secret || "", role: u.role || "analyst" };
 }
 function setUserRole(userId, role) {
   db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role, userId);
@@ -193,7 +194,11 @@ function getAudit(userId, limit = 50) {
   });
 }
 function updateUserWebhook(userId, url) {
-  db.prepare("UPDATE users SET webhook = ? WHERE id = ?").run(url, userId);
+  const u = getUserById(userId);
+  let secret = u.webhook_secret || "";
+  if (url && !secret) secret = crypto.randomBytes(16).toString("hex");
+  if (!url) secret = "";
+  db.prepare("UPDATE users SET webhook = ?, webhook_secret = ? WHERE id = ?").run(url, secret, userId);
   return getUserById(userId);
 }
 function updateProfile(userId, { name, company }) {

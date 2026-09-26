@@ -119,6 +119,15 @@
         <tr><td><span class="pill-put">PUT</span>/api/auth/password</td><td>修改密码(校验旧密码)</td></tr>
         <tr><td><span class="pill-get">GET</span>/api/export/alerts.csv</td><td>导出告警 CSV(带筛选参数)</td></tr>
         <tr><td><span class="pill-get">GET</span>/api/stream</td><td>SSE 实时事件流</td></tr>
+        <tr><td><span class="pill-post">POST</span>/api/ingest/logs</td><td>采集器批量上报日志(Authorization: Bearer &lt;token&gt;)→ 检测引擎</td></tr>
+        <tr><td><span class="pill-post">POST</span>/api/agents</td><td>创建采集器(Token 仅返回一次)</td></tr>
+        <tr><td><span class="pill-get">GET</span>/api/agents</td><td>采集器列表与心跳</td></tr>
+        <tr><td><span class="pill-get">GET</span>/api/rules</td><td>检测规则清单(正则/聚合/事件)</td></tr>
+        <tr><td><span class="pill-get">GET</span>/api/team</td><td>团队成员与角色、在线状态</td></tr>
+        <tr><td><span class="pill-put">PUT</span>/api/users/role</td><td>变更成员角色(仅管理员)</td></tr>
+        <tr><td><span class="pill-get">GET</span>/api/audit</td><td>审计日志(仅管理员)</td></tr>
+        <tr><td><span class="pill-post">POST</span>/api/import</td><td>导入 JSON 备份(仅管理员,整表替换)</td></tr>
+        <tr><td><span class="pill-put">PUT</span>/api/auth/webhook</td><td>配置 Webhook 推送地址(自动生成签名密钥)</td></tr>
       </tbody>
     </table>
 
@@ -132,7 +141,13 @@
     -d '{"action":"ban"}'
 <span class="k">#</span> → {"ok":true,"feed":{"level":"ok","msg":"告警 ALT-10247 来源 IP 已封禁…"}}.</pre>
 
-    <h2><span class="no">05</span>常见问题</h2>
+    <h2><span class="no">05</span>Webhook 签名校验</h2>
+    <p>在控制台配置推送地址后,平台会为该账号生成签名密钥。每个推送请求携带 <code style="font-family:var(--mono);color:var(--accent)">X-NEXUS-Signature: sha256=&lt;hmac&gt;</code> 头,接收端用密钥对原始请求体做 HMAC-SHA256 比对即可验真。飞书 / 钉钉 / Slack 机器人地址自动适配对应消息格式。</p>
+    <pre class="code"><span class="k">#</span> 接收端验签示例(Node.js)
+const expected = "sha256=" + crypto.createHmac("sha256", SECRET).update(rawBody).digest("hex");
+if (expected !== req.headers["x-nexus-signature"]) return res.status(401).end();</pre>
+
+    <h2><span class="no">06</span>常见问题</h2>
     <p>误报太多?处置会不会误杀?数据安全吗?——参见官网 <a href="index.html#faq" style="color:var(--accent)">FAQ 章节</a>,或直接进入<a href="dashboard.html" style="color:var(--accent)">控制台</a>体验。</p>
   </main>
 
