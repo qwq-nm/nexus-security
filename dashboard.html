@@ -218,6 +218,7 @@
             <button class="mini-btn" id="simulateBtn" title="注入一条模拟告警(红队演练)">⚠ 注入测试告警</button>
             <button class="mini-btn" id="exportAlerts" title="导出告警为 CSV">↓ 导出</button>
           </div>
+          <div class="killchain" id="killchain" title="按 Lockheed Martin 网络杀伤链模型映射当前告警"></div>
           <canvas id="hourChart" style="width:100%;height:56px" aria-label="24小时告警分布"></canvas>
           <div class="batchbar" id="batchBar" hidden>
             <span>已选 <b id="batchCount">0</b> 条</span>
@@ -500,7 +501,7 @@
 
   <script src="js/backend.js?v=3"></script>
   <script src="js/auth.js?v=4"></script>
-  <script src="js/dashboard.js?v=31"></script>
+  <script src="js/dashboard.js?v=33"></script>
 <script>if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(function(){});</script>
 </body>
 </html>

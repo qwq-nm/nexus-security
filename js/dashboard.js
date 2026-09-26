@@ -214,6 +214,19 @@
     $("#kpiBlocked").textContent = blocked;
     $("#kpiPending").textContent = pending.length;
     $("#kpiAssets").textContent = state.assets.length;
+
+    // 态势异常指数:最新一天 vs 前 14 天基线(σ 偏离)
+    const base = state.trend.slice(-15, -1).map((d) => d.alerts);
+    if (base.length >= 7) {
+      const mean = base.reduce((a, b) => a + b, 0) / base.length;
+      const std = Math.sqrt(base.reduce((s2, v) => s2 + (v - mean) ** 2, 0) / base.length) || 1;
+      const last = state.trend.at(-1)?.alerts ?? todayAlerts;
+      const z = (last - mean) / std;
+      const tag2 = z > 2 ? "异常" : z > 1 ? "偏高" : "正常";
+      const el = $("#kpiAlertsDelta");
+      el.textContent = `${z >= 0 ? "▲" : "▼"} 基线偏离 ${Math.abs(z).toFixed(1)}σ(${tag2})`;
+      el.className = "kpi__delta " + (tag2 === "正常" ? "down" : "up");
+    }
     $("#kpiPendingDelta").textContent = critPending ? `含 ${critPending} 条严重告警` : "暂无严重告警";
     $("#kpiPendingDelta").className = "kpi__delta " + (critPending ? "up" : "down");
     $("#navAlertBadge").textContent = pending.length;
@@ -387,9 +400,30 @@
     if (!data.length) return;
     const padL = 34, padR = 12, padT = 14, padB = 26;
     const iw = w - padL - padR, ih = h - padT - padB;
-    const maxV = Math.max(...data.map((d) => Math.max(d.alerts, d.blocked))) * 1.15;
-    const X = (i) => padL + (iw * i) / Math.max(data.length - 1, 1);
+
+    // 态势预测:对最近数据做线性回归,外推 7 天(预留右侧 22% 区域)
+    const fcOn = data.length >= 10;
+    const hist = data.slice(-14);
+    let fcVals = [], fcBand = 0;
+    if (fcOn) {
+      const n = hist.length;
+      const ys = hist.map((d) => d.alerts);
+      const mx = (n - 1) / 2, my = ys.reduce((a, b) => a + b, 0) / n;
+      let num = 0, den = 0;
+      for (let i = 0; i < n; i++) { num += (i - mx) * (ys[i] - my); den += (i - mx) ** 2; }
+      const slope = den ? num / den : 0;
+      for (let i = 1; i <= 7; i++) fcVals.push(Math.max(0, my + slope * (n - 1 + i - mx)));
+      const resid = Math.sqrt(ys.reduce((s2, y) => s2 + (y - (my + slope * (ys.indexOf(y) - mx))) ** 2, 0) / n) || 1;
+      fcBand = Math.max(resid, my * 0.08);
+    }
+    const dataW = fcOn ? iw * 0.78 : iw;
+    const maxV = Math.max(
+      ...data.map((d) => Math.max(d.alerts, d.blocked)),
+      ...fcVals
+    ) * 1.15;
+    const X = (i) => padL + (dataW * i) / Math.max(data.length - 1, 1);
     const Y = (v) => padT + ih - (v / maxV) * ih;
+    const fcX = (i) => padL + dataW + ((iw - dataW) * i) / 7;
 
     ctx.strokeStyle = "rgba(148,163,184,0.12)";
     ctx.fillStyle = "rgba(148,163,184,0.55)";
@@ -403,14 +437,17 @@
     const step = Math.ceil(data.length / 8);
     data.forEach((d, i) => {
       if (i % step !== 0 && i !== data.length - 1) return;
-      const x = Math.min(X(i), w - 34); // 防止最后一个标签溢出
+      const x = Math.min(X(i), dataW + padL - 20);
       ctx.fillText(d.day, x - 11, h - 8);
     });
-    trendLayout = { padL, padR, iw };
+    if (fcOn) {
+      ctx.fillStyle = "rgba(251, 191, 36, 0.85)";
+      ctx.fillText("预测", w - 46, h - 8);
+    }
+    trendLayout = { padL, padR, iw: dataW };
 
     const hasLevels = data.every((d) => typeof d.crit === "number");
     if (hasLevels) {
-      // 等级堆叠面积(低→中→高→严重)+ 总量线 + 拦截虚线
       const LVS = [
         ["low", "rgba(74, 222, 128, 0.4)"],
         ["med", "rgba(56, 225, 255, 0.4)"],
@@ -431,17 +468,6 @@
         ctx.fill();
         prevLine = data.map((_, i) => accs[i][li]);
       });
-      ctx.beginPath();
-      data.forEach((d, i) => { const y = Y(d.alerts); i ? ctx.lineTo(X(i), y) : ctx.moveTo(X(i), y); });
-      ctx.strokeStyle = "#9ddcff"; ctx.lineWidth = 2; ctx.stroke();
-      ctx.beginPath();
-      data.forEach((d, i) => { const y = Y(d.blocked); i ? ctx.lineTo(X(i), y) : ctx.moveTo(X(i), y); });
-      ctx.strokeStyle = "#e2f9ff"; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.5; ctx.stroke();
-      ctx.setLineDash([]);
-      data.forEach((d, i) => {
-        ctx.fillStyle = "#a5f3fc";
-        ctx.beginPath(); ctx.arc(X(i), Y(d.alerts), 3, 0, Math.PI * 2); ctx.fill();
-      });
     } else {
       const area = ctx.createLinearGradient(0, padT, 0, padT + ih);
       area.addColorStop(0, "rgba(56, 225, 255, 0.30)");
@@ -450,20 +476,39 @@
       data.forEach((d, i) => (i ? ctx.lineTo(X(i), Y(d.alerts)) : ctx.moveTo(X(i), Y(d.alerts))));
       ctx.lineTo(X(data.length - 1), padT + ih); ctx.lineTo(X(0), padT + ih); ctx.closePath();
       ctx.fillStyle = area; ctx.fill();
+    }
 
+    ctx.beginPath();
+    data.forEach((d, i) => { const y = Y(d.alerts); i ? ctx.lineTo(X(i), y) : ctx.moveTo(X(i), y); });
+    ctx.strokeStyle = "#9ddcff"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.beginPath();
+    data.forEach((d, i) => { const y = Y(d.blocked); i ? ctx.lineTo(X(i), y) : ctx.moveTo(X(i), y); });
+    ctx.strokeStyle = "#e2f9ff"; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.setLineDash([]);
+    data.forEach((d, i) => {
+      ctx.fillStyle = "#a5f3fc";
+      ctx.beginPath(); ctx.arc(X(i), Y(d.alerts), 3, 0, Math.PI * 2); ctx.fill();
+    });
+
+    // 预测虚线 + 置信带
+    if (fcOn) {
+      const lastX = X(data.length - 1), lastY = Y(data[data.length - 1].alerts);
+      ctx.save();
+      ctx.fillStyle = "rgba(251, 191, 36, 0.08)";
       ctx.beginPath();
-      data.forEach((d, i) => (i ? ctx.lineTo(X(i), Y(d.alerts)) : ctx.moveTo(X(i), Y(d.alerts))));
-      ctx.strokeStyle = "#38e1ff"; ctx.lineWidth = 2; ctx.stroke();
-
+      ctx.moveTo(lastX, lastY);
+      fcVals.forEach((v, i) => ctx.lineTo(fcX(i), Y(Math.min(maxV, v + fcBand))));
+      for (let i = fcVals.length - 1; i >= 0; i--) ctx.lineTo(fcX(i), Y(Math.max(0, fcVals[i] - fcBand)));
+      ctx.closePath();
+      ctx.fill();
+      ctx.setLineDash([3, 4]);
+      ctx.strokeStyle = "rgba(251, 191, 36, 0.95)";
+      ctx.lineWidth = 1.8;
       ctx.beginPath();
-      data.forEach((d, i) => (i ? ctx.lineTo(X(i), Y(d.blocked)) : ctx.moveTo(X(i), Y(d.blocked))));
-      ctx.strokeStyle = "#7dd3fc"; ctx.lineWidth = 2; ctx.setLineDash([5, 4]); ctx.stroke();
-      ctx.setLineDash([]);
-
-      data.forEach((d, i) => {
-        ctx.fillStyle = "#a5f3fc";
-        ctx.beginPath(); ctx.arc(X(i), Y(d.alerts), 3, 0, Math.PI * 2); ctx.fill();
-      });
+      ctx.moveTo(lastX, lastY);
+      fcVals.forEach((v, i) => ctx.lineTo(fcX(i), Y(v)));
+      ctx.stroke();
+      ctx.restore();
     }
   }
 
@@ -867,6 +912,33 @@
     }
     $("#alertEmpty").hidden = list.length > 0;
     drawHour();
+    renderKillchain();
+  }
+
+  /* ── 态势感知:网络杀伤链阶段映射 ──────────── */
+  const KILL_CHAIN = [
+    { phase: "侦察", types: ["端口扫描", "爬虫行为"] },
+    { phase: "初始访问", types: ["暴力破解", "钓鱼邮件", "弱口令"] },
+    { phase: "投递与执行", types: ["恶意样本", "可疑登录"] },
+    { phase: "利用", types: ["SQL 注入", "越权访问"] },
+    { phase: "持久化", types: ["配置漂移", "挖矿行为"] },
+    { phase: "命令与控制", types: ["异常外联", "DNS 隧道"] },
+    { phase: "影响扩散", types: ["横向移动", "勒索软件"] },
+  ];
+  function renderKillchain() {
+    const box = $("#killchain");
+    if (!box) return;
+    box.innerHTML = "";
+    for (const seg of KILL_CHAIN) {
+      const count = state.alerts.filter((a) => seg.types.includes(a.type)).length;
+      const el = document.createElement("div");
+      el.className = "kc-phase" + (count >= 4 ? " hot" : count >= 2 ? " warm" : "");
+      el.title = `涉及类型:${seg.types.join("、")}`;
+      el.innerHTML = `<p class="kc-count"></p><p class="kc-name"></p>`;
+      el.children[0].textContent = count;
+      el.children[1].textContent = seg.phase;
+      box.appendChild(el);
+    }
   }
   $("#alertRows").addEventListener("click", (e) => {
     const btn = e.target.closest("button[data-act]");
