@@ -711,3 +711,6 @@ html.light .riskbar { background: rgba(15, 23, 42, 0.1); }
 .kc-phase.warm { background: rgba(251, 191, 36, 0.06); }
 .kc-phase.warm .kc-count { color: var(--amber); }
 html.light .kc-phase::after { background: #eef1f6; }
+
+/* ── 全局修复:hidden 属性优先于任何 display 声明 ── */
+[hidden] { display: none !important; }
