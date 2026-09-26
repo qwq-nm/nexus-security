@@ -498,6 +498,14 @@ app.post("/api/import", requireUser, (req, res) => {
 });
 
 /* ── Webhook 告警推送 ─────────────────────── */
+function webhookPayload(url, event) {
+  const text = `[NEXUS ${event.level.toUpperCase()}] ${event.msg}`;
+  // 自动识别 IM 平台推送格式
+  if (url.includes("open.feishu.cn")) return { msg_type: "text", content: { text } };
+  if (url.includes("oapi.dingtalk.com")) return { msgtype: "text", text: { content: text } };
+  if (url.includes("hooks.slack.com")) return { text };
+  return { source: "NEXUS", level: event.level, msg: event.msg, ts: event.ts };
+}
 function webhookPush(userId, event) {
   const user = store.getUserById(userId);
   if (!user || !user.webhook) return;
@@ -505,7 +513,7 @@ function webhookPush(userId, event) {
   fetch(user.webhook, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ source: "NEXUS", level: event.level, msg: event.msg, ts: event.ts }),
+    body: JSON.stringify(webhookPayload(user.webhook, event)),
   }).catch(() => {}); // 演示:失败静默,不阻塞主流程
 }
 app.put("/api/auth/webhook", requireUser, (req, res) => {
@@ -517,7 +525,7 @@ app.put("/api/auth/webhook", requireUser, (req, res) => {
 app.post("/api/webhook/test", requireUser, async (req, res) => {
   const user = store.getUserById(req.user.id);
   if (!user.webhook) return res.status(400).json({ error: "请先保存 Webhook 地址。" });
-  const payload = { source: "NEXUS", level: "crit", msg: "这是一条 Webhook 测试推送", ts: Date.now() };
+  const payload = webhookPayload(user.webhook, { level: "crit", msg: "这是一条 Webhook 测试推送", ts: Date.now() });
   try {
     await fetch(user.webhook, {
       method: "POST",

@@ -2070,6 +2070,23 @@ ${pending.map((a) => `- [ ] ${a.id}(${LEVEL_NAME[a.level]})${a.type} → ${a.ass
     }
   });
 
+  /* ── 移动端滑动切换视图 ────────────────────── */
+  let touchX = 0, touchY = 0;
+  document.addEventListener("touchstart", (e) => {
+    touchX = e.touches[0].clientX;
+    touchY = e.touches[0].clientY;
+  }, { passive: true });
+  document.addEventListener("touchend", (e) => {
+    if (drawer.classList.contains("open") || !palette.hidden) return;
+    if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) return;
+    const dx = e.changedTouches[0].clientX - touchX;
+    const dy = e.changedTouches[0].clientY - touchY;
+    if (Math.abs(dx) < 70 || Math.abs(dy) > 60) return;
+    const cur = VIEW_ORDER.indexOf(currentView);
+    const next = VIEW_ORDER[cur + (dx < 0 ? 1 : -1)];
+    if (next) switchView(next);
+  }, { passive: true });
+
   /* ── 退出登录 ─────────────────────────────── */
   $("#logoutBtn").addEventListener("click", async () => {
     const ok = await confirmModal({ title: "退出登录", body: "确定要退出安全运营控制台吗?", okText: "退出" });
