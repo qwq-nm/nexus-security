@@ -85,8 +85,9 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_feed_user ON feed(user_id, id);
 `);
 
-// 老库迁移:告警备注列
+// 老库迁移:告警备注列 + 用户 Webhook 列
 try { db.exec("ALTER TABLE alerts ADD COLUMN note TEXT DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN webhook TEXT DEFAULT ''"); } catch {}
 db.exec(`
   CREATE TABLE IF NOT EXISTS logins (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -127,7 +128,11 @@ function getUserById(id) {
   return db.prepare("SELECT * FROM users WHERE id = ?").get(id) || null;
 }
 function publicUser(u) {
-  return { name: u.name, company: u.company, email: u.email, createdAt: u.created_at };
+  return { name: u.name, company: u.company, email: u.email, createdAt: u.created_at, webhook: u.webhook || "" };
+}
+function updateUserWebhook(userId, url) {
+  db.prepare("UPDATE users SET webhook = ? WHERE id = ?").run(url, userId);
+  return getUserById(userId);
 }
 function updateProfile(userId, { name, company }) {
   const u = getUserById(userId);
@@ -406,7 +411,7 @@ function replaceUserData(userId, { alerts, assets, playbooks }) {
 
 module.exports = {
   db, hashPassword, verifyPassword,
-  createUser, getUserByEmail, getUserById, publicUser, updateProfile,
+  createUser, getUserByEmail, getUserById, publicUser, updateProfile, updateUserWebhook,
   createSession, getUserByToken, deleteSession, purgeExpiredSessions, migrateTrends,
   seedUserData, getAlerts, getAlert, alertJson, alertCount, insertAlert, simulateAlert, getAssets, getAsset,
   getPlaybooks, getPlaybook, insertPlaybook, deletePlaybook, getTrend, getFeed, appendFeed,

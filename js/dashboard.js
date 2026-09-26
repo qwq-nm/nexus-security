@@ -72,6 +72,13 @@
   const pad = (n) => String(n).padStart(2, "0");
   const fmtHM = (ts) => { const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
   const fmtFull = (ts) => { const d = new Date(ts); return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  const fmtRel = (ts) => {
+    const diff = Date.now() - ts;
+    if (diff < 60 * 1000) return "刚刚发现";
+    if (diff < 3600 * 1000) return `${Math.floor(diff / 60000)} 分钟前发现`;
+    if (diff < 86400 * 1000) return `${Math.floor(diff / 3600000)} 小时前发现`;
+    return `${Math.floor(diff / 86400000)} 天前发现`;
+  };
   const LEVEL_NAME = { crit: "严重", high: "高危", med: "中危", low: "低危" };
   const STATUS_TAG = { "待处置": "high", "处理中": "med", "已封禁": "crit", "已隔离": "crit", "已忽略": "idle", "已解决": "ok" };
 
@@ -1403,7 +1410,7 @@
         <dt>状态</dt><dd><span class="tag tag--${STATUS_TAG[a.status] || "idle"}">${a.status}</span></dd>
         <dt>来源</dt><dd class="dim"></dd>
         <dt>目标资产</dt><dd class="dim"></dd>
-        <dt>首次发现</dt><dd class="dim">${fmtFull(a.ts)}</dd>
+        <dt>首次发现</dt><dd class="dim">${fmtFull(a.ts)}<br /><span style="font-family:var(--mono);font-size:11px;color:var(--accent)">${fmtRel(a.ts)}</span></dd>
         <dt>处置人</dt><dd class="dim">${a.handledBy || "—"}</dd>
       </dl>
       <p class="drawer__desc"></p>
@@ -1697,6 +1704,8 @@
     dds[2].textContent = user.email;
     $("#profName").value = user.name;
     $("#profCompany").value = user.company || "";
+    $("#webhookUrl").value = user.webhook || "";
+    $("#webhookHint").textContent = user.webhook ? "当前已配置推送目标。" : "未配置 · 严重/高危事件将不会推送。";
   }
   $("#profileForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1826,6 +1835,33 @@ ${pending.map((a) => `- [ ] ${a.id}(${LEVEL_NAME[a.level]})${a.type} → ${a.ass
     if (e.key === "?") { showHelp(); return; }
     const idx = parseInt(e.key, 10);
     if (idx >= 1 && idx <= VIEW_ORDER.length) switchView(VIEW_ORDER[idx - 1]);
+  });
+
+  /* ── Webhook 推送设置 ─────────────────────── */
+  $("#webhookSave").addEventListener("click", async () => {
+    if (mode === "demo") return toast("Webhook 推送仅真实后端模式支持", "info");
+    const url = $("#webhookUrl").value.trim();
+    try {
+      const res = await API.call("PUT", "api/auth/webhook", { url });
+      user.webhook = res.webhook;
+      $("#webhookHint").textContent = url ? "已保存推送目标。" : "已清除推送目标。";
+      toast(url ? "Webhook 已保存" : "Webhook 已清除");
+    } catch (e) { toast(e.message, "warn"); }
+  });
+  $("#webhookTest").addEventListener("click", async () => {
+    if (mode === "demo") return toast("Webhook 推送仅真实后端模式支持", "info");
+    const btn = $("#webhookTest");
+    btn.disabled = true; btn.textContent = "推送中…";
+    try {
+      const res = await API.call("POST", "api/webhook/test");
+      $("#webhookHint").textContent = res.msg;
+      toast("测试推送已发送");
+    } catch (e) {
+      $("#webhookHint").textContent = e.message;
+      toast(e.message, "warn");
+    } finally {
+      btn.disabled = false; btn.textContent = "测试";
+    }
   });
 
   /* ── 登录历史 ─────────────────────────────── */

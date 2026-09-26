@@ -130,6 +130,7 @@ setInterval(() => {
     const event = store.appendFeed(userId, level, msg);
     ssePush(userId, event);
     ssePush(userId, { presence: true }); // 顺带刷新在线状态,避免初始竞态
+    webhookPush(userId, event);
   }
 }, 12000);
 
@@ -246,6 +247,7 @@ app.post("/api/alerts/:id/action", requireUser, (req, res) => {
       return res.status(400).json({ error: "未知操作。" });
   }
   ssePush(uid, feed);
+  webhookPush(uid, feed);
   res.json({ ok: true, feed, alert: toAlertJson(store.getAlert(uid, a.id)) });
 });
 function dbSetAlert(uid, id, fields) {
@@ -336,6 +338,7 @@ app.post("/api/alerts/simulate", requireUser, (req, res) => {
   const alert = store.simulateAlert(uid);
   const feed = store.appendFeed(uid, "crit", `红队演练:注入新告警 ${alert.id}(${alert.type})`);
   ssePush(uid, feed);
+  webhookPush(uid, feed);
   res.json({ ok: true, feed, alert: toAlertJson(alert) });
 });
 
@@ -492,6 +495,40 @@ app.post("/api/import", requireUser, (req, res) => {
   const feed = store.appendFeed(uid, "warn", `${req.user.name} 导入了数据备份(${d.alerts.length} 条告警)`);
   ssePush(uid, feed);
   res.json({ ok: true, feed, alerts: store.getAlerts(uid), assets: store.getAssets(uid), playbooks: store.getPlaybooks(uid) });
+});
+
+/* ── Webhook 告警推送 ─────────────────────── */
+function webhookPush(userId, event) {
+  const user = store.getUserById(userId);
+  if (!user || !user.webhook) return;
+  if (!["crit", "high"].includes(event.level)) return;
+  fetch(user.webhook, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source: "NEXUS", level: event.level, msg: event.msg, ts: event.ts }),
+  }).catch(() => {}); // 演示:失败静默,不阻塞主流程
+}
+app.put("/api/auth/webhook", requireUser, (req, res) => {
+  const url = String((req.body || {}).url || "").trim();
+  if (url && !/^https?:\/\//i.test(url)) return res.status(400).json({ error: "Webhook 地址必须以 http(s):// 开头。" });
+  store.updateUserWebhook(req.user.id, url);
+  res.json({ ok: true, webhook: url });
+});
+app.post("/api/webhook/test", requireUser, async (req, res) => {
+  const user = store.getUserById(req.user.id);
+  if (!user.webhook) return res.status(400).json({ error: "请先保存 Webhook 地址。" });
+  const payload = { source: "NEXUS", level: "crit", msg: "这是一条 Webhook 测试推送", ts: Date.now() };
+  try {
+    await fetch(user.webhook, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(5000),
+    });
+    res.json({ ok: true, msg: "测试推送已发送,请检查接收端。" });
+  } catch {
+    res.status(502).json({ error: "推送失败:目标地址不可达或超时(5 秒)。" });
+  }
 });
 
 /* ── 演示账号(启动时确保存在)────────────── */

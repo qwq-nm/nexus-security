@@ -429,6 +429,15 @@
                 </select>
               </div>
               <p class="settings-note" style="margin-top:12px">仅在页面处于后台时触发,避免打扰当前操作。</p>
+              <div class="field" style="margin-top:18px">
+                <label for="webhookUrl">Webhook 推送地址(严重/高危事件实时 POST)</label>
+                <div style="display:flex;gap:8px">
+                  <input id="webhookUrl" type="url" placeholder="https://example.com/hook" style="flex:1;padding:11px 14px;border-radius:10px;background:rgba(255,255,255,0.05);border:1px solid var(--border-soft);color:var(--text);font-family:var(--mono);font-size:12.5px" />
+                  <button class="mini-btn" id="webhookSave">保存</button>
+                  <button class="mini-btn" id="webhookTest">测试</button>
+                </div>
+                <p class="settings-note" id="webhookHint" style="margin-top:8px"></p>
+              </div>
             </div>
             <div class="card" style="grid-column: 1 / -1;">
               <div class="card__head">
@@ -473,7 +482,7 @@
 
   <script src="js/backend.js?v=3"></script>
   <script src="js/auth.js?v=4"></script>
-  <script src="js/dashboard.js?v=22"></script>
+  <script src="js/dashboard.js?v=23"></script>
 <script>if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(function(){});</script>
 </body>
 </html>
