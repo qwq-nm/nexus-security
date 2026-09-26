@@ -50,9 +50,12 @@ function parseCookies(req) {
   }
   return out;
 }
+const csrfOf = (token) => require("node:crypto").createHash("sha256").update("csrf::" + token).digest("hex").slice(0, 32);
 function setSessionCookie(res, token) {
-  res.setHeader("Set-Cookie",
-    `${COOKIE}=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${7 * 24 * 3600}`);
+  res.setHeader("Set-Cookie", [
+    `${COOKIE}=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${7 * 24 * 3600}`,
+    `nexus_csrf=${csrfOf(token)}; Path=/; SameSite=Lax; Max-Age=${7 * 24 * 3600}`,
+  ]);
 }
 function clearSessionCookie(res) {
   res.setHeader("Set-Cookie", `${COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`);
@@ -76,11 +79,32 @@ function currentUser(req) {
   return store.getUserByToken(parseCookies(req)[COOKIE]);
 }
 function requireUser(req, res, next) {
-  const user = currentUser(req);
+  const token = parseCookies(req)[COOKIE];
+  const user = store.getUserByToken(token);
   if (!user) return res.status(401).json({ error: "未登录或会话已过期。" });
   req.user = user;
+  req.sessionToken = token;
   next();
 }
+// CSRF 双提交校验(仅会话鉴权的变更请求;Agent Bearer 路由走 agentAuth 不经过这里)
+function csrfGuard(req, res, next) {
+  if (!["POST", "PUT", "DELETE", "PATCH"].includes(req.method)) return next();
+  const expected = csrfOf(parseCookies(req)[COOKIE] || "");
+  if (!expected) return next();
+  if (req.headers["x-csrf-token"] !== expected) {
+    return res.status(403).json({ error: "CSRF 校验失败,请刷新页面重试。" });
+  }
+  next();
+}
+function requireRole(...roles) {
+  return (req, res, next) => {
+    if (!roles.includes(req.user.role || "analyst"))
+      return res.status(403).json({ error: `权限不足(需要 ${roles.join("/")})。` });
+    next();
+  };
+}
+const ROLE_A = ["admin", "analyst"];
+const audit = (req, action, detail) => store.recordAudit(req.user.id, action, detail, req.socket.remoteAddress);
 
 /* ── SSE 实时事件流 ───────────────────────── */
 const sseClients = new Map(); // userId -> Set<res>
@@ -150,6 +174,9 @@ app.post("/api/auth/register", (req, res) => {
   if (store.getUserByEmail(normEmail)) return res.status(409).json({ error: "该邮箱已注册,请直接登录。" });
 
   const user = store.createUser({ name: String(name).trim().slice(0, 40), company: String(company || "").trim().slice(0, 60), email: normEmail, pass: pw });
+  const anyAdmin = store.db.prepare("SELECT 1 FROM users WHERE role = 'admin' LIMIT 1").get();
+  if (!anyAdmin) store.setUserRole(user.id, "admin");
+  store.recordAudit(user.id, "register", `账号注册(${normEmail})`, req.socket.remoteAddress);
   store.seedUserData(user.id);
   setSessionCookie(res, store.createSession(user.id));
   res.json({ ok: true, user: store.publicUser(user) });
@@ -163,6 +190,7 @@ app.post("/api/auth/login", (req, res) => {
   if (!user || !store.verifyPassword(String(password || ""), user.pass))
     return res.status(401).json({ error: "邮箱或密码不正确。" });
   store.recordLogin(user.id, req.socket.remoteAddress, req.headers["user-agent"]);
+  store.recordAudit(user.id, "login", "账号登录", req.socket.remoteAddress);
   setSessionCookie(res, store.createSession(user.id));
   res.json({ ok: true, user: store.publicUser(user) });
 });
@@ -173,6 +201,7 @@ app.get("/api/auth/logins", requireUser, (req, res) => {
 });
 
 app.post("/api/auth/logout", (req, res) => {
+  store.recordAudit(currentUser(req)?.id ?? null, "logout", "退出登录", req.socket.remoteAddress);
   store.deleteSession(parseCookies(req)[COOKIE]);
   clearSessionCookie(res);
   res.json({ ok: true });
@@ -188,7 +217,7 @@ app.get("/api/auth/me", (req, res) => {
 app.get("/api/bootstrap", requireUser, (req, res) => {
   const uid = req.user.id;
   res.json({
-    user: store.publicUser(req.user),
+    user: store.publicUser(req.user), // 含 role
     alerts: store.getAlerts(uid),
     assets: store.getAssets(uid),
     playbooks: store.getPlaybooks(uid),
@@ -202,7 +231,7 @@ function toAlertJson(r) {
   return { id: r.id, level: r.level, type: r.type, src: r.src, asset: r.asset, desc: r.desc, status: r.status, ts: r.ts, handledBy: r.handled_by };
 }
 
-app.post("/api/alerts/:id/action", requireUser, (req, res) => {
+app.post("/api/alerts/:id/action", requireUser, requireRole("admin", "analyst"), csrfGuard, (req, res) => {
   const uid = req.user.id;
   const a = store.getAlert(uid, req.params.id);
   if (!a) return res.status(404).json({ error: "告警不存在。" });
@@ -249,6 +278,7 @@ app.post("/api/alerts/:id/action", requireUser, (req, res) => {
   }
   ssePush(uid, feed);
   webhookPush(uid, feed);
+  audit(req, `alert.${act}`, `${a.id}(${a.type}) 状态 → ${a.status || ""}`);
   res.json({ ok: true, feed, alert: toAlertJson(store.getAlert(uid, a.id)) });
 });
 function dbSetAlert(uid, id, fields) {
@@ -259,7 +289,7 @@ function dbSetAlert(uid, id, fields) {
 }
 
 /* ── 资产操作 ─────────────────────────────── */
-app.post("/api/assets/:id/action", requireUser, (req, res) => {
+app.post("/api/assets/:id/action", requireUser, requireRole("admin", "analyst"), csrfGuard, (req, res) => {
   const uid = req.user.id;
   const a = store.getAsset(uid, req.params.id);
   if (!a) return res.status(404).json({ error: "资产不存在。" });
@@ -298,7 +328,7 @@ function dbSetAsset(uid, id, fields) {
 }
 
 /* ── 处置剧本 ─────────────────────────────── */
-app.post("/api/playbooks/:id/toggle", requireUser, (req, res) => {
+app.post("/api/playbooks/:id/toggle", requireUser, requireRole("admin", "analyst"), csrfGuard, (req, res) => {
   const uid = req.user.id;
   const p = store.getPlaybook(uid, req.params.id);
   if (!p) return res.status(404).json({ error: "剧本不存在。" });
@@ -309,7 +339,7 @@ app.post("/api/playbooks/:id/toggle", requireUser, (req, res) => {
   res.json({ ok: true, feed, playbook: store.getPlaybooks(uid).find((x) => x.id === p.id) });
 });
 
-app.post("/api/playbooks/:id/run", requireUser, (req, res) => {
+app.post("/api/playbooks/:id/run", requireUser, requireRole("admin", "analyst"), csrfGuard, (req, res) => {
   const uid = req.user.id;
   const p = store.getPlaybook(uid, req.params.id);
   if (!p) return res.status(404).json({ error: "剧本不存在。" });
@@ -334,7 +364,7 @@ app.post("/api/playbooks/:id/run", requireUser, (req, res) => {
 });
 
 /* ── 模拟新告警(红队演练)─────────────────── */
-app.post("/api/alerts/simulate", requireUser, (req, res) => {
+app.post("/api/alerts/simulate", requireUser, requireRole("admin", "analyst"), csrfGuard, (req, res) => {
   const uid = req.user.id;
   const alert = store.simulateAlert(uid);
   const feed = store.appendFeed(uid, "crit", `红队演练:注入新告警 ${alert.id}(${alert.type})`);
@@ -378,7 +408,7 @@ app.get("/api/export/:what.csv", requireUser, (req, res) => {
 });
 
 /* ── 修改密码 ─────────────────────────────── */
-app.put("/api/auth/password", requireUser, (req, res) => {
+app.put("/api/auth/password", requireUser, csrfGuard, (req, res) => {
   const { oldPassword, newPassword } = req.body || {};
   if (!store.verifyPassword(String(oldPassword || ""), req.user.pass))
     return res.status(400).json({ error: "当前密码不正确。" });
@@ -409,6 +439,7 @@ app.get("/api/team", requireUser, (req, res) => {
   const members = users.map((u) => ({
     name: u.name,
     company: u.company,
+    role: u.role || "analyst",
     createdAt: u.created_at,
     online: (sseClients.get(u.id)?.size || 0) > 0,
   }));
@@ -416,7 +447,7 @@ app.get("/api/team", requireUser, (req, res) => {
 });
 
 /* ── 资料编辑 ─────────────────────────────── */
-app.put("/api/auth/profile", requireUser, (req, res) => {
+app.put("/api/auth/profile", requireUser, csrfGuard, (req, res) => {
   const { name, company } = req.body || {};
   if (name !== undefined && !String(name).trim()) return res.status(400).json({ error: "称呼不能为空。" });
   const updated = store.updateProfile(req.user.id, { name, company });
@@ -425,7 +456,7 @@ app.put("/api/auth/profile", requireUser, (req, res) => {
 });
 
 /* ── 批量处置 ─────────────────────────────── */
-app.post("/api/alerts/batch", requireUser, (req, res) => {
+app.post("/api/alerts/batch", requireUser, requireRole("admin", "analyst"), csrfGuard, (req, res) => {
   const uid = req.user.id;
   const { action, ids } = req.body || {};
   if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: "未选择任何告警。" });
@@ -444,7 +475,7 @@ app.post("/api/alerts/batch", requireUser, (req, res) => {
 });
 
 /* ── 告警备注 ─────────────────────────────── */
-app.post("/api/alerts/:id/note", requireUser, (req, res) => {
+app.post("/api/alerts/:id/note", requireUser, requireRole("admin", "analyst"), csrfGuard, (req, res) => {
   const uid = req.user.id;
   const a = store.getAlert(uid, req.params.id);
   if (!a) return res.status(404).json({ error: "告警不存在。" });
@@ -454,7 +485,7 @@ app.post("/api/alerts/:id/note", requireUser, (req, res) => {
 });
 
 /* ── 剧本创建 / 删除 ──────────────────────── */
-app.post("/api/playbooks", requireUser, (req, res) => {
+app.post("/api/playbooks", requireUser, requireRole("admin", "analyst"), csrfGuard, (req, res) => {
   const uid = req.user.id;
   const { name, trigger, action } = req.body || {};
   if (!String(name || "").trim() || !String(trigger || "").trim() || !String(action || "").trim())
@@ -466,9 +497,10 @@ app.post("/api/playbooks", requireUser, (req, res) => {
   });
   const feed = store.appendFeed(uid, "ok", `新建处置剧本「${String(name).trim()}」`);
   ssePush(uid, feed);
+  audit(req, "playbook.create", String(name).trim().slice(0, 40));
   res.json({ ok: true, feed, playbooks: store.getPlaybooks(uid) });
 });
-app.delete("/api/playbooks/:id", requireUser, (req, res) => {
+app.delete("/api/playbooks/:id", requireUser, requireRole("admin", "analyst"), csrfGuard, (req, res) => {
   const uid = req.user.id;
   const p = store.getPlaybook(uid, req.params.id);
   if (!p) return res.status(404).json({ error: "剧本不存在。" });
@@ -479,7 +511,7 @@ app.delete("/api/playbooks/:id", requireUser, (req, res) => {
 });
 
 /* ── 备份导入 ─────────────────────────────── */
-app.post("/api/import", requireUser, (req, res) => {
+app.post("/api/import", requireUser, requireRole("admin"), csrfGuard, (req, res) => {
   const uid = req.user.id;
   const d = req.body || {};
   const okArr = Array.isArray;
@@ -540,6 +572,7 @@ app.post("/api/ingest/logs", agentAuth, (req, res) => {
     ssePush(uid, feed);
     webhookPush(uid, feed);
   }
+  store.recordAudit(uid, "ingest", `采集器接入 ${inserted.length} 条日志,检出 ${created.length} 条告警`, "-");
   ssePush(uid, { reload: true }); // 通知控制台刷新告警列表
   res.json({ accepted: inserted.length, alerts: created.map((a) => a.id) });
 });
@@ -547,15 +580,16 @@ app.post("/api/ingest/logs", agentAuth, (req, res) => {
 app.get("/api/agents", requireUser, (req, res) => {
   res.json({ agents: store.listAgents(req.user.id) });
 });
-app.post("/api/agents", requireUser, (req, res) => {
+app.post("/api/agents", requireUser, requireRole("admin", "analyst"), csrfGuard, (req, res) => {
   const name = String((req.body || {}).name || "").trim() || "采集器";
   const { id, token } = store.createAgent(req.user.id, name);
   const feed = store.appendFeed(req.user.id, "ok", `创建采集器「${name}」,请妥善保存 Token`);
   ssePush(req.user.id, feed);
   res.json({ ok: true, id, token }); // Token 仅此一次明文返回
 });
-app.delete("/api/agents/:id", requireUser, (req, res) => {
+app.delete("/api/agents/:id", requireUser, requireRole("admin", "analyst"), csrfGuard, (req, res) => {
   store.revokeAgent(req.user.id, Number(req.params.id));
+  audit(req, "agent.revoke", `采集器 #${req.params.id} 吊销`);
   res.json({ ok: true, agents: store.listAgents(req.user.id) });
 });
 app.get("/api/rules", requireUser, (req, res) => {
@@ -563,6 +597,32 @@ app.get("/api/rules", requireUser, (req, res) => {
 });
 app.get("/api/alerts", requireUser, (req, res) => {
   res.json({ alerts: store.getAlerts(req.user.id) });
+});
+
+/* ── RBAC 角色管理(仅管理员)──────────────── */
+app.put("/api/users/:id/role", requireUser, requireRole("admin"), csrfGuard, (req, res) => {
+  const role = String((req.body || {}).role || "");
+  if (!["admin", "analyst", "viewer"].includes(role)) return res.status(400).json({ error: "角色必须是 admin / analyst / viewer。" });
+  const id = Number(req.params.id);
+  if (id === req.user.id && role !== "admin") return res.status(400).json({ error: "不能降级自己的管理员角色。" });
+  const u = store.getUserById(id);
+  if (!u) return res.status(404).json({ error: "用户不存在。" });
+  store.setUserRole(id, role);
+  audit(req, "role.change", `${u.email} → ${role}`);
+  res.json({ ok: true, users: store.listUsers() });
+});
+app.get("/api/audit", requireUser, requireRole("admin"), (req, res) => {
+  res.json({ audit: store.getAudit(null, 50) });
+});
+app.put("/api/users/role", requireUser, requireRole("admin"), csrfGuard, (req, res) => {
+  const { name, role } = req.body || {};
+  if (!["admin", "analyst", "viewer"].includes(role)) return res.status(400).json({ error: "角色无效。" });
+  const u = store.getUserByEmail(String(name || "").trim().toLowerCase());
+  if (!u) return res.status(404).json({ error: "用户不存在。" });
+  if (u.id === req.user.id && role !== "admin") return res.status(400).json({ error: "不能降级自己的管理员角色。" });
+  store.setUserRole(u.id, role);
+  audit(req, "role.change", `${u.email} → ${role}`);
+  res.json({ ok: true });
 });
 
 /* ── Webhook 告警推送 ─────────────────────── */
@@ -584,10 +644,11 @@ function webhookPush(userId, event) {
     body: JSON.stringify(webhookPayload(user.webhook, event)),
   }).catch(() => {}); // 演示:失败静默,不阻塞主流程
 }
-app.put("/api/auth/webhook", requireUser, (req, res) => {
+app.put("/api/auth/webhook", requireUser, csrfGuard, (req, res) => {
   const url = String((req.body || {}).url || "").trim();
   if (url && !/^https?:\/\//i.test(url)) return res.status(400).json({ error: "Webhook 地址必须以 http(s):// 开头。" });
   store.updateUserWebhook(req.user.id, url);
+  audit(req, "webhook.set", url || "(清除)");
   res.json({ ok: true, webhook: url });
 });
 app.post("/api/webhook/test", requireUser, async (req, res) => {
@@ -612,7 +673,7 @@ function ensureDemoUser() {
   const email = "demo@nexus.sec";
   let user = store.getUserByEmail(email);
   if (!user) {
-    user = store.createUser({ name: "演示管理员", company: "NEXUS 演示环境", email, pass: "demo1234" });
+    user = store.createUser({ name: "演示管理员", company: "NEXUS 演示环境", email, pass: "demo1234", role: "admin" });
   }
   store.seedUserData(user.id);
 }

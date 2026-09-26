@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: 语法检查
+        run: |
+          node --check server/server.js
+          node --check server/db.js
+          node --check server/detect.js
+          node --check agent/agent.js
+          for f in js/*.js; do node --check "$f"; done
+      - name: API 集成测试
+        run: node tests/api.test.js

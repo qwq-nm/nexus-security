@@ -14,7 +14,7 @@
   <meta property="og:site_name" content="NEXUS Security" />
   <meta name="twitter:card" content="summary" />
 <link rel="stylesheet" href="css/style.css?v=3" />
-  <link rel="stylesheet" href="css/app.css?v=9" />
+  <link rel="stylesheet" href="css/app.css?v=10" />
 </head>
 <body class="app" data-page="dashboard">
 
@@ -468,6 +468,13 @@ node agent/agent.js --url <你的平台地址> --token &lt;TOKEN&gt; --file /var
                 <p class="settings-note" id="webhookHint" style="margin-top:8px"></p>
               </div>
             </div>
+            <div class="card" style="grid-column: 1 / -1;" id="auditCard" hidden>
+              <div class="card__head">
+                <p class="card__title">审计日志</p>
+                <p class="card__hint">仅管理员可见 · 最近 50 条</p>
+              </div>
+              <div class="blocklist" id="auditList"><p class="blocklist__empty">加载中…</p></div>
+            </div>
             <div class="card" style="grid-column: 1 / -1;">
               <div class="card__head">
                 <p class="card__title">最近登录</p>
@@ -519,7 +526,7 @@ node agent/agent.js --url <你的平台地址> --token &lt;TOKEN&gt; --file /var
 
   <script src="js/backend.js?v=3"></script>
   <script src="js/auth.js?v=4"></script>
-  <script src="js/dashboard.js?v=34"></script>
+  <script src="js/dashboard.js?v=37"></script>
 <script>if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(function(){});</script>
 </body>
 </html>

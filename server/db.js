@@ -10,7 +10,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const DATA_DIR = path.join(__dirname, "..", "data");
+const DATA_DIR = process.env.NEXUS_DATA_DIR || path.join(__dirname, "..", "data");
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const db = new DatabaseSync(path.join(DATA_DIR, "nexus.db"));
@@ -92,6 +92,15 @@ try {
   db.exec("ALTER TABLE alerts ADD COLUMN rule_id TEXT DEFAULT ''");
   db.exec("ALTER TABLE alerts ADD COLUMN log_excerpt TEXT DEFAULT ''");
 } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'analyst'"); } catch {}
+try { db.exec("CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, ts INTEGER NOT NULL, action TEXT NOT NULL, detail TEXT DEFAULT '', ip TEXT DEFAULT '')"); } catch {}
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_audit_user ON audit(user_id, id)"); } catch {}
+
+// RBAC 迁移:最早的账号与演示账号设为 admin
+try {
+  db.prepare("UPDATE users SET role = 'admin' WHERE id = (SELECT id FROM users ORDER BY created_at, id LIMIT 1)").run();
+  db.prepare("UPDATE users SET role = 'admin' WHERE email = 'demo@nexus.sec'").run();
+} catch {}
 try {
   db.exec("ALTER TABLE trend ADD COLUMN crit INTEGER DEFAULT 0");
   db.exec("ALTER TABLE trend ADD COLUMN high INTEGER DEFAULT 0");
@@ -144,10 +153,10 @@ function verifyPassword(pw, stored) {
 }
 
 /* ── 用户与会话 ───────────────────────────── */
-function createUser({ name, company, email, pass }) {
+function createUser({ name, company, email, pass, role }) {
   const info = db
-    .prepare("INSERT INTO users (name, company, email, pass, created_at) VALUES (?, ?, ?, ?, ?)")
-    .run(name, company || "", email, hashPassword(pass), Date.now());
+    .prepare("INSERT INTO users (name, company, email, pass, created_at, role) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(name, company || "", email, hashPassword(pass), Date.now(), role || "analyst");
   return getUserById(Number(info.lastInsertRowid));
 }
 function getUserByEmail(email) {
@@ -157,7 +166,31 @@ function getUserById(id) {
   return db.prepare("SELECT * FROM users WHERE id = ?").get(id) || null;
 }
 function publicUser(u) {
-  return { name: u.name, company: u.company, email: u.email, createdAt: u.created_at, webhook: u.webhook || "" };
+  return { name: u.name, company: u.company, email: u.email, createdAt: u.created_at, webhook: u.webhook || "", role: u.role || "analyst" };
+}
+function setUserRole(userId, role) {
+  db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role, userId);
+  return getUserById(userId);
+}
+function listUsers() {
+  return db.prepare("SELECT id, name, company, email, role, created_at FROM users ORDER BY created_at").all()
+    .map((r) => ({ id: r.id, name: r.name, company: r.company, email: r.email, role: r.role, createdAt: r.created_at }));
+}
+function recordAudit(userId, action, detail, ip) {
+  db.prepare("INSERT INTO audit (user_id, ts, action, detail, ip) VALUES (?, ?, ?, ?, ?)")
+    .run(userId, Date.now(), action, String(detail || "").slice(0, 200), ip || "-");
+}
+function getAudit(userId, limit = 50) {
+  // 管理员看全组织;普通角色看自己(由调用方决定传入 null)
+  const q = userId
+    ? "SELECT ts, action, detail, ip FROM audit WHERE user_id = ? ORDER BY id DESC LIMIT ?"
+    : "SELECT ts, action, detail, ip, user_id FROM audit ORDER BY id DESC LIMIT ?";
+  const rows = userId ? db.prepare(q).all(userId, limit) : db.prepare(q).all(limit);
+  if (userId) return rows;
+  return rows.map((r) => {
+    const u = getUserById(r.user_id);
+    return { ...r, who: u ? u.name : "未知" };
+  });
 }
 function updateUserWebhook(userId, url) {
   db.prepare("UPDATE users SET webhook = ? WHERE id = ?").run(url, userId);
@@ -487,5 +520,6 @@ module.exports = {
   seedUserData, getAlerts, getAlert, alertJson, alertCount, insertAlert, simulateAlert, getAssets, getAsset,
   getPlaybooks, getPlaybook, insertPlaybook, deletePlaybook, getTrend, getFeed, appendFeed,
   createAgent, listAgents, touchAgent, revokeAgent, getAgentByToken, insertLog, trimLogs,
+  setUserRole, listUsers, recordAudit, getAudit,
   recordLogin, getLogins, replaceUserData,
 };

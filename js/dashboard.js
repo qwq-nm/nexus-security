@@ -40,6 +40,10 @@
     });
   }
 
+  // RBAC:demo 模式视为完全权限;api 模式按服务端角色
+  const canWrite = mode === "demo" ? true : ["admin", "analyst"].includes(user.role || "analyst");
+  const isAdmin = mode === "demo" ? true : (user.role || "analyst") === "admin";
+
   /* ── 持久化(demo 模式写 localStorage;api 模式由服务端负责)─ */
   const save = mode === "demo"
     ? {
@@ -195,7 +199,7 @@
     if (name === "playbooks") renderPlaybooks();
     if (name === "reports") renderReports();
     if (name === "team") renderTeam();
-    if (name === "settings") { renderSettings(); loadLogins(); }
+    if (name === "settings") { renderSettings(); loadLogins(); loadAudit(); }
     window.scrollTo(0, 0);
   }
   $$(".sidebar__item[data-view]").forEach((b) =>
@@ -654,6 +658,7 @@
 
   /* ── 告警中心 ─────────────────────────────── */
   function alertActions(a) {
+    if (!canWrite) return [];
     const map = {
       "待处置": [["封禁", "ban", ""], ["隔离", "isolate", "danger"], ["忽略", "ignore", ""]],
       "处理中": [["标记解决", "resolve", "ok"], ["忽略", "ignore", ""]],
@@ -1018,7 +1023,7 @@
     tbody.innerHTML = "";
     for (const a of list) {
       const tr = document.createElement("tr");
-      const ops = a.status === "已隔离"
+      const ops = !canWrite ? '<span class="td-dim">—</span>' : a.status === "已隔离"
         ? `<button class="mini-btn mini-btn--ok" data-act="release" data-id="${a.id}">恢复上线</button>`
         : `<button class="mini-btn mini-btn--danger" data-act="isolate" data-id="${a.id}">隔离</button>
            <button class="mini-btn" data-act="rescan" data-id="${a.id}">扫描</button>`;
@@ -1068,7 +1073,7 @@
         <div class="pb__top">
           <p class="pb__name"></p>
           <label class="switch" title="启用/停用">
-            <input type="checkbox" data-act="toggle" data-id="${p.id}" ${p.enabled ? "checked" : ""}/>
+            <input type="checkbox" data-act="toggle" data-id="${p.id}" ${p.enabled && canWrite ? "checked" : ""} ${canWrite ? "" : "disabled"}/>
             <i></i>
           </label>
         </div>
@@ -1076,9 +1081,9 @@
         <p class="pb__line"><b>动作:</b><span class="pb__action"></span></p>
         <p class="pb__meta"></p>
         <div class="pb__foot">
-          <button class="mini-btn" data-act="run" data-id="${p.id}">▶ 立即执行</button>
+          ${canWrite ? `<button class="mini-btn" data-act="run" data-id="${p.id}">▶ 立即执行</button>` : ""}
           <span class="td-dim" style="font-size:12px">累计执行 ${p.runCount} 次</span>
-          <button class="mini-btn mini-btn--danger" data-del="${p.id}" title="删除剧本" style="margin-left:auto">🗑</button>
+          ${canWrite ? `<button class="mini-btn mini-btn--danger" data-del="${p.id}" title="删除剧本" style="margin-left:auto">🗑</button>` : ""}
         </div>`;
       el.querySelector(".pb__name").textContent = p.name;
       el.querySelector(".pb__trigger").textContent = p.trigger;
@@ -1142,6 +1147,7 @@
       mask.querySelector("input")?.focus();
     });
   }
+  if (canWrite) document.getElementById("newPbBtn").hidden = false;
   $("#newPbBtn").addEventListener("click", async () => {
     const vals = await formModal({
       title: "新建处置剧本",
@@ -1770,6 +1776,8 @@
       "可疑登录": "异地 IP 登录成功,触发新设备提醒",
     },
   };
+  if (canWrite) document.getElementById("simulateBtn").hidden = false;
+  if (canWrite) document.getElementById("exportAlerts").hidden = false;
   $("#simulateBtn").addEventListener("click", async () => {
     if (mode === "api") {
       const res = await apiCall("POST", "api/alerts/simulate");
@@ -1846,7 +1854,7 @@
       try { members = (await API.call("GET", "api/team")).members; }
       catch { members = []; }
     } else {
-      members = DEMO_TEAM;
+      members = DEMO_TEAM.map((m) => ({ ...m, role: "analyst" }));
     }
     $("#teamTotal").textContent = members.length;
     $("#teamOnline").textContent = members.filter((m) => m.online).length;
@@ -1873,6 +1881,12 @@
           </div>
           <span class="tag ${m.online ? "tag--ok" : "tag--idle"}" style="margin-left:auto">${m.online ? "在线" : "离线"}</span>
         </div>
+        ${isAdmin && mode === "api" ? `<div style="margin-top:12px;display:flex;align-items:center;gap:8px">
+          <span class="td-dim" style="font-size:12px">角色</span>
+          <select data-role-for="${m.name}" ${m.name === user.name ? "disabled" : ""} style="padding:8px 12px;border-radius:10px;background:rgba(15,23,42,0.05);border:1px solid var(--border-soft);color:var(--text);font-family:var(--font);font-size:12.5px">
+            ${["admin", "analyst", "viewer"].map((r) => `<option value="${r}" ${m.role === r ? "selected" : ""}>${{ admin: "管理员", analyst: "分析师", viewer: "只读" }[r]}</option>`).join("")}
+          </select>
+        </div>` : ""}
         <p class="pb__meta" style="margin-top:14px">加入于 ${new Date(m.createdAt).toLocaleDateString("zh-CN")} · 角色:安全分析师</p>
         <p class="pb__meta">名下待处置:<b style="color:var(--accent)">${duty[m.name] || 0}</b> 条</p>`;
       el.querySelector(".userchip__avatar").textContent = m.name.trim().charAt(0).toUpperCase();
@@ -1880,16 +1894,33 @@
       el.querySelector(".pb__meta").textContent = m.company || "安全团队";
       grid.appendChild(el);
     }
+    // 角色管理(仅管理员 · api 模式)
+    if (isAdmin && mode === "api") {
+      grid.querySelectorAll("select[data-role-for]").forEach((sel) => {
+        sel.addEventListener("change", async () => {
+          const name = sel.dataset.roleFor;
+          try {
+            await API.call("PUT", "api/users/role", { name, role: sel.value });
+            pushFeed("warn", `角色变更:${name} → ${sel.value}`);
+            toast(`${name} 的角色已更新为 ${sel.value}`);
+          } catch (e) {
+            toast(e.message, "warn");
+            renderTeam();
+          }
+        });
+      });
+    }
   }
-
   /* ── 账号设置 ─────────────────────────────── */
   function renderSettings() {
     $("#settingsMode").textContent = mode === "api" ? "真实后端模式 · 数据存储于 SQLite" : "浏览器演示模式 · 数据存储于 localStorage";
     const info = $("#settingsInfo");
+    const ROLE_NAME = { admin: "管理员", analyst: "分析师", viewer: "只读" };
     info.innerHTML = `<dl class="kv">
       <dt>称呼</dt><dd></dd>
       <dt>公司/团队</dt><dd></dd>
       <dt>邮箱</dt><dd></dd>
+      <dt>角色</dt><dd><span class="tag ${user.role === "admin" ? "tag--crit" : user.role === "viewer" ? "tag--idle" : "tag--med"}">${ROLE_NAME[user.role] || "分析师"}</span></dd>
       <dt>注册时间</dt><dd class="dim">${user.createdAt ? new Date(user.createdAt).toLocaleDateString("zh-CN") : "—"}</dd>
       <dt>运行模式</dt><dd class="dim">${mode === "api" ? "API · 会话认证" : "演示 · 本地存储"}</dd>
     </dl>`;
@@ -2116,6 +2147,29 @@ node agent/agent.js --url ${location.origin} --token ${res.token} --generator`;
       toast("采集器已吊销", "info");
     } catch (err) { toast(err.message, "warn"); }
   });
+
+  /* ── 审计日志(admin)──────────────────────── */
+  async function loadAudit() {
+    const card = $("#auditCard");
+    if (!card) return;
+    if (!(isAdmin && mode === "api")) { card.hidden = true; return; }
+    card.hidden = false;
+    try {
+      const { audit } = await API.call("GET", "api/audit");
+      const box = $("#auditList");
+      box.innerHTML = "";
+      for (const a of audit) {
+        const row = document.createElement("div");
+        row.className = "blocklist__row";
+        row.style.borderColor = "var(--border-soft)";
+        row.style.background = "rgba(255,255,255,0.03)";
+        row.innerHTML = `<span class="td-mono">${fmtFull(a.ts)}</span><span></span><span class="dim">${a.who} · ${a.ip}</span>`;
+        row.children[1].textContent = `${a.action} ${a.detail}`;
+        box.appendChild(row);
+      }
+      if (!audit.length) box.innerHTML = '<p class="blocklist__empty">暂无审计记录</p>';
+    } catch (e) { card.hidden = true; }
+  }
 
   /* ── 登录历史 ─────────────────────────────── */
   async function loadLogins() {

@@ -26,9 +26,12 @@
   window.NEXUS_API = {
     ready: probe,
     async call(method, url, body) {
+      const csrf = document.cookie.split("; ").find((c) => c.startsWith("nexus_csrf="));
+      const headers = { ...(body ? { "Content-Type": "application/json" } : {}) };
+      if (csrf && ["POST", "PUT", "DELETE", "PATCH"].includes(method)) headers["X-CSRF-Token"] = decodeURIComponent(csrf.split("=")[1]);
       const res = await fetch(url, {
         method,
-        headers: body ? { "Content-Type": "application/json" } : undefined,
+        headers,
         body: body ? JSON.stringify(body) : undefined,
         credentials: "same-origin",
       });
