@@ -1,5 +1,8 @@
 # NEXUS · 网络安全态势感知平台
 
+> 📊 **[项目进度](PROGRESS.md)** — 四阶段里程碑、功能清单、已知限制、路线图
+> 📖 **[使用手册](MANUAL.md)** — 部署、数据接入、控制台操作、Webhook 对接、故障排查
+
 以**网络安全**为主题的全栈产品站:Editorial Noir 艺术风落地页 + 真实后端(SQLite / 会话认证 / REST API / SSE)驱动的安全运营控制台。
 
 > 灵感来自 [Aura](https://www.aura.build/browse/components) 模板广场,全部代码为原创实现。
